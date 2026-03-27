@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/phaser-game/"
+title = "Phaser 3 Game"
+version = "1.0.0"
+id = "artifacts/phaser-game"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/phaser-game/" ]
+localPort = 23723
+
+[services.development]
+run = "pnpm --filter @workspace/phaser-game run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/phaser-game", "run", "build" ]
+publicDir = "artifacts/phaser-game/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23723"
+BASE_PATH = "/phaser-game/"

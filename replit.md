@@ -48,6 +48,17 @@ Every package extends `tsconfig.base.json` which sets `composite: true`. The roo
 - `pnpm run build` — runs `typecheck` first, then recursively runs `build` in all packages that define it
 - `pnpm run typecheck` — runs `tsc --build --emitDeclarationOnly` using project references
 
+## Phaser 3 Game (`artifacts/phaser-game`)
+
+Plain JS Phaser 3 browser game — no React, no UI framework. Served via Vite.
+
+- Entry: `index.html` → `src/main.js`
+- Styles: `src/style.css` — pixel-art crisp rendering, centered canvas, black letterbox
+- Game config: `src/main.js` — Phaser.AUTO, Arcade Physics, `pixelArt: true`, `Scale.FIT` / `CENTER_BOTH`
+- Scene: `src/scenes/GameScene.js` — contains `preload()`, `create()`, `update()`
+- Drop local assets into `public/assets/` and load them in `GameScene.preload()`
+- Canvas size: 480 × 270 (change `GAME_WIDTH` / `GAME_HEIGHT` in `main.js`)
+
 ## Packages
 
 ### `artifacts/api-server` (`@workspace/api-server`)
