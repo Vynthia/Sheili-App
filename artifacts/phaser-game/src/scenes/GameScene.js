@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { BackgroundManager } from "../systems/BackgroundManager.js";
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -6,8 +7,6 @@ export default class GameScene extends Phaser.Scene {
   }
 
   preload() {
-    // Resolve asset paths through Vite's base URL so the loader always
-    // finds files whether the game runs at "/" or "/phaser-game/".
     this.load.setBaseURL(import.meta.env.BASE_URL);
 
     // ── Background layers ──────────────────────────────────────────────
@@ -32,23 +31,19 @@ export default class GameScene extends Phaser.Scene {
     this.load.image("skylight", "assets/obstacles/skylight.png");
 
     // ── Cat ────────────────────────────────────────────────────────────
-    // cat_start is a single static image (idle/sitting pose)
     this.load.image("cat_start", "assets/cat/cat_start.png");
-
-    // cat_run is a horizontal strip: 512 × 128 → 4 frames of 128 × 128
     this.load.spritesheet("cat_run", "assets/cat/cat_run.png", {
       frameWidth: 128,
       frameHeight: 128,
     });
 
     // ── Enemy ──────────────────────────────────────────────────────────
-    // catcher_run is a horizontal strip: 512 × 128 → 4 frames of 128 × 128
+    // catcher_run: 512 × 128 → 4 frames of 128 × 128
     this.load.spritesheet("catcher_run", "assets/enemy/catcher_run.png", {
       frameWidth: 128,
       frameHeight: 128,
     });
-
-    // catcher_catch is a horizontal strip: 256 × 128 → 2 frames of 128 × 128
+    // catcher_catch: 256 × 128 → 2 frames of 128 × 128
     this.load.spritesheet("catcher_catch", "assets/enemy/catcher_catch.png", {
       frameWidth: 128,
       frameHeight: 128,
@@ -56,35 +51,22 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    const { width, height } = this.scale;
+    // Disable the default black camera background so the gradient layer
+    // is the only sky colour source.
+    this.cameras.main.setBackgroundColor(0x000000);
 
-    this.add
-      .text(width / 2, height / 2, "Assets loaded.\nReady to build.", {
-        fontSize: "18px",
-        color: "#ffffff",
-        align: "center",
-        lineSpacing: 8,
-      })
-      .setOrigin(0.5);
+    // Build the parallax background system.
+    this._bg = new BackgroundManager(this);
 
-    // Confirm each key loaded successfully to the console (dev aid).
-    const keys = [
-      "sky_night", "sky_day", "skyline_far", "buildings_mid",
-      "roofs_back", "moon", "sun",
-      "roof_left", "roof_middle", "roof_right", "roof_landing",
-      "chimney", "antenna", "vent", "skylight",
-      "cat_start", "cat_run",
-      "catcher_run", "catcher_catch",
-    ];
-    const missing = keys.filter((k) => !this.textures.exists(k));
-    if (missing.length) {
-      console.warn("Missing textures:", missing);
-    } else {
-      console.log("All textures loaded successfully.");
-    }
+    // Start at night (progress 0 = fully night).
+    this._bg.setDayNightProgress(0);
   }
 
-  update(_time, _delta) {
-    // Game loop — gameplay will go here.
+  update(_time, delta) {
+    // Pass delta to the background manager.
+    // worldDelta is left undefined here so BackgroundManager auto-scrolls
+    // at a steady pace for preview.  Once gameplay is added, pass the
+    // real world-scroll amount instead.
+    this._bg.update(delta);
   }
 }
