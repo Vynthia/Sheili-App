@@ -16,11 +16,22 @@ const PARALLAX = {
 // Replace with the real world-delta value once the player is moving.
 const AUTO_SCROLL_PX_PER_SEC = 80;
 
-// Night sky gradient colour stops (top → bottom)
+// Night sky gradient colour stops (top → bottom).
+//
+// Key constraint from pixel analysis:
+//   skyline_far silhouette = ~#0d1125 (dark navy, almost black)
+//   buildings_mid transparent below image row 140 → game y 154+
+//
+// Strategy: make the gradient genuinely bright (not near-black) so:
+//   1. City-glow purple (#5f35cc) in lower canvas is visible through
+//      rooftop gaps and the transparent zone below buildings_mid.
+//   2. The upper sky is lighter than before so the skyline silhouette
+//      that is shown in the sky zone (via tilePositionY) stands out.
 const NIGHT_GRADIENT = [
-  [0.00, "#06000f"],
-  [0.45, "#0e0135"],
-  [1.00, "#1c0d4a"],
+  [0.00, "#1e1650"],   // medium dark purple-blue (zenith)
+  [0.45, "#2d1a88"],   // medium purple (mid-sky)
+  [0.75, "#4525b0"],   // brighter purple (horizon)
+  [1.00, "#5f35cc"],   // strong city glow (ground level)
 ];
 
 // Day sky gradient colour stops (top → bottom)
@@ -94,21 +105,66 @@ export class BackgroundManager {
 
     // The image is 128 × 128 at native scale — fine for pixel art (no scaling).
 
-    // 4–6. City layers — TileSprites anchored to the bottom of the canvas.
-    //      The images are all 1024 × 256, so bottom-aligning places their
-    //      detail exactly at the canvas edge.
-    const layerY = height - 256;
+    // ── City layers ────────────────────────────────────────────────────
+    // All source images are 1024 × 256 px (native pixel art size).
+    //
+    // Measured opaque content zones (from raw RGBA pixel analysis):
+    //   skyline_far  : image rows 105–255  (151 px tall, near-black ~#0d1125)
+    //   buildings_mid: image rows  30–140  (111 px, then transparent below 140)
+    //   roofs_back   : image rows  54–253  (200 px, bright white ridge lines)
+    //
+    // Layout strategy for visibility:
+    //
+    //   a) skyline_far is shown in a 50 px SKY SLOT at the top of the
+    //      canvas (y = 0–50), using tilePositionY=105 to shift the opaque
+    //      content (starting at image row 105) into this visible zone.
+    //      The medium-blue gradient gives enough contrast for the dark navy
+    //      silhouette to read as a distant cityscape.
+    //
+    //   b) buildings_mid and roofs_back sit at their natural layerY position
+    //      (y = height - 256 = 14).  Because buildings_mid is transparent
+    //      below image row 140 (game y ≈ 154), the city-glow gradient
+    //      (#5f35cc at the bottom) glows through in rooftop gaps, creating
+    //      vivid depth in the lower canvas.
+    //
+    // The net vertical zones seen by the viewer:
+    //   y 0–44  : sky (gradient + clouds/stars) + skyline silhouette
+    //   y 44–50 : skyline + buildings start
+    //   y 50–68 : buildings only (rooftops haven't started)
+    //   y 68–154: buildings + foreground rooftops in front
+    //   y 154+  : city-glow gradient visible through rooftop gaps
 
+    const layerY     = height - 256;   // 14 px for a 270-tall canvas
+
+    // skyline_far slot: extends from y=0 down to y=SKY_SLOT_H.
+    // The slot is taller than the clear-sky zone (game y 0–44) so that the
+    // silhouette continues BEHIND buildings_mid in the overlap zone (y 44–120),
+    // grounding the distant city instead of letting it float.
+    //
+    // Visual zones with SKY_SLOT_H=120, tilePositionY=105:
+    //   game y 0–43   → skyline rows 105–148  (tops, fully visible in clear sky)
+    //   game y 44–119 → skyline rows 149–224  (hidden behind buildings_mid depth 4)
+    const SKY_SLOT_H            = 120; // px
+    const SKYLINE_CONTENT_START = 105; // first opaque image row in skyline_far.png
+
+    // 4. skyline_far — distant city silhouette in the sky/upper zone.
     this._skylineFar = this.scene.add
-      .tileSprite(0, layerY, width, 256, "skyline_far")
+      .tileSprite(0, 0, width, SKY_SLOT_H, "skyline_far")
       .setOrigin(0, 0)
       .setDepth(3);
+    this._skylineFar.tilePositionY = SKYLINE_CONTENT_START;
 
+    // 5. buildings_mid — apartment facades in their natural position.
+    //    Rows 30–140 produce the lit-window building zone.
+    //    Transparent below row 140, allowing the gradient to show through.
     this._buildings = this.scene.add
       .tileSprite(0, layerY, width, 256, "buildings_mid")
       .setOrigin(0, 0)
       .setDepth(4);
 
+    // 6. roofs_back — foreground rooftop layer (rows 54–253, depth 5).
+    //    Bright white ridge highlights stand out clearly against buildings.
+    //    Transparent gaps in rooftops reveal the city-glow gradient below.
     this._roofsBack = this.scene.add
       .tileSprite(0, layerY, width, 256, "roofs_back")
       .setOrigin(0, 0)
@@ -125,6 +181,10 @@ export class BackgroundManager {
    * @param {number} h
    */
   _buildGradientTexture(key, stops, w, h) {
+    // Remove a stale texture from a previous scene run (happens on HMR reload).
+    if (this.scene.textures.exists(key)) {
+      this.scene.textures.remove(key);
+    }
     const tex = this.scene.textures.createCanvas(key, w, h);
     const ctx = tex.getContext();
     const grad = ctx.createLinearGradient(0, 0, 0, h);

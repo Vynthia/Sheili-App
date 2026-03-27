@@ -54,10 +54,30 @@ Plain JS Phaser 3 browser game — no React, no UI framework. Served via Vite.
 
 - Entry: `index.html` → `src/main.js`
 - Styles: `src/style.css` — pixel-art crisp rendering, centered canvas, black letterbox
-- Game config: `src/main.js` — Phaser.AUTO, Arcade Physics, `pixelArt: true`, `Scale.FIT` / `CENTER_BOTH`
+- Game config: `src/main.js` — `Phaser.CANVAS` renderer (pixel-art reliable), `pixelArt: true`, `antialias: false`, `roundPixels: true`, `Scale.FIT` / `CENTER_BOTH`
 - Scene: `src/scenes/GameScene.js` — contains `preload()`, `create()`, `update()`
-- Drop local assets into `public/assets/` and load them in `GameScene.preload()`
 - Canvas size: 480 × 270 (change `GAME_WIDTH` / `GAME_HEIGHT` in `main.js`)
+- Assets: `public/assets/bg/` (backgrounds), `public/assets/` (sprites)
+
+### BackgroundManager (`src/systems/BackgroundManager.js`)
+
+6-layer parallax city-rooftop background system:
+
+| Depth | Layer | Source | Notes |
+|-------|-------|---------|-------|
+| 0 | Sky gradient (night/day) | generated canvas texture | Night: `#1e1650`→`#5f35cc`; Day: sky blue→peach |
+| 1 | Sky tile (night/day) | `sky_night.png` / `sky_day.png` | Clouds, stars |
+| 2 | Celestial body | `moon.png` / `sun.png` | Drifts horizontally, wraps |
+| 3 | skyline_far | `skyline_far.png` | TileSprite at y=0, height=120, `tilePositionY=105` — shows opaque rows 105–224 in the sky zone, grounded behind buildings_mid |
+| 4 | buildings_mid | `buildings_mid.png` | TileSprite at y=`height-256`=14, full 256px — opaque rows 30–140, transparent below → city-glow gradient shows through |
+| 5 | roofs_back | `roofs_back.png` | TileSprite at y=14, full 256px — closest foreground layer |
+
+Key design decisions:
+- **skyline_far sky-slot trick**: `tilePositionY=105` shifts the first opaque content row to game y=0, showing the distant skyscraper silhouette in the upper sky (game y 0–43), grounded by continuing behind buildings_mid (y 44–120)
+- **city-glow gradient**: bright purple at bottom (`#5f35cc`) glows through transparent areas of buildings_mid (below image row 140 = game y 154+) and gaps in roofs_back
+- **HMR texture cache fix**: `_buildGradientTexture` calls `textures.remove(key)` before `createCanvas` to prevent stale textures on hot-reload
+- `update(delta, worldDelta?)` — scrolls all layers with parallax factors; worldDelta optional (auto-scrolls at 80px/s during dev)
+- `setDayNightProgress(0–1)` — cross-fades between night/day gradients, sky tiles, and celestial bodies
 
 ## Packages
 
