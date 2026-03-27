@@ -24,6 +24,16 @@ body {
 
 #game-container canvas {
   display: block;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
+
+  /* Nearest-neighbor upscaling — no blending between pixels. */
+  image-rendering: pixelated;        /* Chrome, Edge, Firefox 93+ */
+  image-rendering: crisp-edges;      /* Firefox fallback            */
+  -ms-interpolation-mode: nearest-neighbor; /* IE fallback          */
+
+  /* Promote the canvas to its own GPU composite layer.
+     Prevents the browser from re-sampling it during page compositing. */
+  will-change: transform;
+
+  /* Explicitly disable any browser-level smoothing filter. */
+  filter: none;
 }
