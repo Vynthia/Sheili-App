@@ -61,10 +61,10 @@ export default class GameScene extends Phaser.Scene {
     // ── Night-to-day transition ───────────────────────────────────────────
     // Total duration of a single night → day transition, in milliseconds.
     // Increase for a slower, more gradual sunrise; decrease for a faster one.
-    this._DAY_NIGHT_DURATION_MS = 60_000; // 60 seconds
+    this._DAY_NIGHT_DURATION_MS = 20_000; // 20 seconds
 
     // How long (ms) to stay fully at night before the transition begins.
-    this._DAY_NIGHT_DELAY_MS = 5_000; // 5-second night hold at the start
+    this._DAY_NIGHT_DELAY_MS = 3_000; // 3-second night hold at the start
 
     // Accumulated time since the scene started.
     this._dayNightElapsed = 0;

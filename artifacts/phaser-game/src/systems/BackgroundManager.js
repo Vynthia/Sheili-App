@@ -212,15 +212,7 @@ export class BackgroundManager {
     this._skyNight.tilePositionX += scroll * PARALLAX.sky;
     this._skyDay.tilePositionX   += scroll * PARALLAX.sky;
 
-    // Celestial bodies drift horizontally; Y stays fixed.
-    const celestialDrift = scroll * PARALLAX.celestial;
-    this._moon.x += celestialDrift;
-    this._sun.x  += celestialDrift;
-
-    // Wrap moon and sun so they never disappear permanently.
-    const { width } = this.scene.scale;
-    if (this._moon.x > width + 80) this._moon.x = -80;
-    if (this._sun.x  > width + 80) this._sun.x  = -80;
+    // Moon and sun positions are driven by setDayNightProgress(), not scroll.
 
     // City layers — dual-image seamless scroll
     this._scrollPair(this._skylineFar0, this._skylineFar1, scroll * PARALLAX.skylineFar);
@@ -235,14 +227,22 @@ export class BackgroundManager {
    */
   setDayNightProgress(progress) {
     const p = Phaser.Math.Clamp(progress, 0, 1);
+    const { width } = this.scene.scale;
 
+    // Sky gradient and cloud/star cross-fade.
     this._skyGradientNight.setAlpha(1 - p);
     this._skyGradientDay.setAlpha(p);
-
     this._skyNight.setAlpha(1 - p);
     this._skyDay.setAlpha(p);
 
+    // Moon sweeps left → right and fades out as night ends.
+    // At p=0 it sits near the left; at p=1 it has drifted off the right edge.
+    this._moon.x = Phaser.Math.Linear(60, width + 80, p);
     this._moon.setAlpha(1 - p);
+
+    // Sun rises from the left and moves right as day comes in.
+    // At p=0 it is just off-screen left (invisible); at p=1 it rests toward the right.
+    this._sun.x = Phaser.Math.Linear(-80, width - 80, p);
     this._sun.setAlpha(p);
 
     this._isNight = p < 0.5;
