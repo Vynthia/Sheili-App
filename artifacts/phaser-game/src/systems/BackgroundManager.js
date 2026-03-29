@@ -92,6 +92,7 @@ export class BackgroundManager {
       .image(400, 34, "sun")
       .setOrigin(0.5, 0.5)
       .setDepth(2)
+      .setScale(0.5)
       .setAlpha(0);
 
     // ── City layers ────────────────────────────────────────────────────────
@@ -275,17 +276,10 @@ export class BackgroundManager {
     } else {
       const dt = (t - 0.5) / 0.5; // 0 → 1 within day phase
 
-      // Sun fades in over first 10 %, travels across 85 %, fades out last 15 %.
+      // Sun appears immediately, travels across 85 % of the phase, fades out last 15 %.
       const moveT = Math.min(1, dt / 0.85);
       this._sun.x  = Phaser.Math.Linear(-80, width + 80, moveT);
-      let sunAlpha;
-      if (dt < 0.10) {
-        sunAlpha = dt / 0.10;               // fade in
-      } else if (dt > 0.85) {
-        sunAlpha = 1 - (dt - 0.85) / 0.15; // fade out
-      } else {
-        sunAlpha = 1;
-      }
+      const sunAlpha = dt > 0.85 ? 1 - (dt - 0.85) / 0.15 : 1;
       this._sun.setAlpha(sunAlpha);
 
       this._moon.setAlpha(0);
