@@ -106,21 +106,22 @@ export class BackgroundManager {
     const layerY = height - 256; // 14 px for a 270-tall canvas
 
     // 4. skyline_far — distant city silhouette.
-    //    The source image has opaque content starting at row 105.
-    //    setCrop(0, 105, CITY_IMG_W, 120) reveals only those rows and places
-    //    them flush with the top of the canvas (y=0), matching the old
-    //    tilePositionY=105 trick used with TileSprite.
-    const SKYLINE_CROP_Y = 105;
-    const SKYLINE_CROP_H = 120;
+    //    Start the crop at row 55 (instead of 105) so the skyscraper tops are
+    //    revealed higher up in the canvas, then show 170 px of height so the
+    //    silhouette extends well behind the buildings_mid layer.
+    const SKYLINE_CROP_Y = 55;
+    const SKYLINE_CROP_H = 170;
+    // Lift the layer 20 px above the canvas top so even more of the tops show.
+    const SKYLINE_Y = -20;
 
     this._skylineFar0 = this.scene.add
-      .image(0, 0, "skyline_far")
+      .image(0, SKYLINE_Y, "skyline_far")
       .setOrigin(0, 0)
       .setDepth(3)
       .setCrop(0, SKYLINE_CROP_Y, CITY_IMG_W, SKYLINE_CROP_H);
 
     this._skylineFar1 = this.scene.add
-      .image(CITY_IMG_W, 0, "skyline_far")
+      .image(CITY_IMG_W, SKYLINE_Y, "skyline_far")
       .setOrigin(0, 0)
       .setDepth(3)
       .setCrop(0, SKYLINE_CROP_Y, CITY_IMG_W, SKYLINE_CROP_H);
