@@ -178,6 +178,16 @@ export class BackgroundManager {
       .image(CITY_IMG_W, layerY + ROOFS_SHIFT_Y, "roofs_back")
       .setOrigin(0, 0)
       .setDepth(5);
+
+    // ── Float scroll accumulators ──────────────────────────────────────────
+    // Each accumulator grows by (scroll * parallaxFactor) every frame.
+    // _applyScrollPair() derives integer pixel positions from them so that
+    // roundPixels rendering never sees sub-pixel jumps.
+    this._offSkyNight  = 0;
+    this._offSkyDay    = 0;
+    this._offSkylineFar = 0;
+    this._offBuildings = 0;
+    this._offRoofsBack = 0;
   }
 
   // ── Private: texture helpers ───────────────────────────────────────────────
@@ -201,21 +211,22 @@ export class BackgroundManager {
   }
 
   /**
-   * Helper: scroll two image copies and wrap the one that leaves the left edge.
+   * Snap a dual-image pair to the correct integer pixel positions based on a
+   * running float offset accumulator.
+   *
+   * Using Math.round(-(offset % imgW)) instead of subtracting dx from the
+   * stored x each frame avoids accumulated floating-point rounding that causes
+   * stutter under Phaser's pixelArt / roundPixels mode.
+   *
    * @param {Phaser.GameObjects.Image} img0
    * @param {Phaser.GameObjects.Image} img1
-   * @param {number} dx  pixels to move left this frame
+   * @param {number} offset  Total float pixels scrolled so far (ever-increasing)
+   * @param {number} [imgW]  Width of each image (default CITY_IMG_W)
    */
-  _scrollPair(img0, img1, dx) {
-    img0.x -= dx;
-    img1.x -= dx;
-
-    if (img0.x + CITY_IMG_W <= 0) {
-      img0.x = img1.x + CITY_IMG_W;
-    }
-    if (img1.x + CITY_IMG_W <= 0) {
-      img1.x = img0.x + CITY_IMG_W;
-    }
+  _applyScrollPair(img0, img1, offset, imgW = CITY_IMG_W) {
+    const x = Math.round(-(offset % imgW));
+    img0.x = x;
+    img1.x = x + imgW;
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -233,16 +244,23 @@ export class BackgroundManager {
         ? worldDelta
         : AUTO_SCROLL_PX_PER_SEC * (delta / 1000);
 
-    // Sky / cloud layers — dual-image seamless scroll
-    this._scrollPair(this._skyNight0, this._skyNight1, scroll * PARALLAX.sky);
-    this._scrollPair(this._skyDay0,   this._skyDay1,   scroll * PARALLAX.sky);
+    // Accumulate float offsets per layer (never reset — modulo handles wrap).
+    this._offSkyNight   += scroll * PARALLAX.sky;
+    this._offSkyDay     += scroll * PARALLAX.sky;
+    this._offSkylineFar += scroll * PARALLAX.skylineFar;
+    this._offBuildings  += scroll * PARALLAX.buildings;
+    this._offRoofsBack  += scroll * PARALLAX.roofsBack;
 
-    // Moon and sun positions are driven by setDayNightProgress(), not scroll.
+    // Snap image pairs to integer pixel positions derived from the float
+    // accumulators — eliminates sub-pixel stutter in roundPixels / pixelArt mode.
+    const SKY_W = CITY_IMG_W; // sky images are also 1024 px wide
+    this._applyScrollPair(this._skyNight0,   this._skyNight1,   this._offSkyNight,   SKY_W);
+    this._applyScrollPair(this._skyDay0,     this._skyDay1,     this._offSkyDay,     SKY_W);
+    this._applyScrollPair(this._skylineFar0, this._skylineFar1, this._offSkylineFar);
+    this._applyScrollPair(this._buildings0,  this._buildings1,  this._offBuildings);
+    this._applyScrollPair(this._roofsBack0,  this._roofsBack1,  this._offRoofsBack);
 
-    // City layers — dual-image seamless scroll
-    this._scrollPair(this._skylineFar0, this._skylineFar1, scroll * PARALLAX.skylineFar);
-    this._scrollPair(this._buildings0,  this._buildings1,  scroll * PARALLAX.buildings);
-    this._scrollPair(this._roofsBack0,  this._roofsBack1,  scroll * PARALLAX.roofsBack);
+    // Moon and sun positions are driven by setCycleProgress(), not scroll.
   }
 
   /**
