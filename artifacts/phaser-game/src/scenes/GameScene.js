@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { BackgroundManager } from "../systems/BackgroundManager.js";
+import { PlatformManager }   from "../systems/PlatformManager.js";
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -58,6 +59,11 @@ export default class GameScene extends Phaser.Scene {
     // Build the parallax background system.
     this._bg = new BackgroundManager(this);
 
+    // Build the playable platform system.
+    // PlatformManager exposes a static physics group (.group) that
+    // GameScene can use to attach a player collider when the cat is added.
+    this._platforms = new PlatformManager(this);
+
     // ── Day / night cycle ─────────────────────────────────────────────────
     // Full cycle = one moon traversal + one sun traversal.
     // Increase to slow everything down; decrease to speed it up.
@@ -79,8 +85,9 @@ export default class GameScene extends Phaser.Scene {
     this._bg.setCycleProgress(cycleProgress);
 
     // Pass delta to the background manager for parallax scrolling.
-    // worldDelta is left undefined so BackgroundManager auto-scrolls at a
-    // steady pace for preview; pass the real world-scroll once gameplay exists.
     this._bg.update(delta);
+
+    // Scroll platforms and recycle / spawn segments.
+    this._platforms.update(delta);
   }
 }
