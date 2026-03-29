@@ -17,21 +17,11 @@ const PARALLAX = {
 const AUTO_SCROLL_PX_PER_SEC = 80;
 
 // Night sky gradient colour stops (top → bottom).
-//
-// Key constraint from pixel analysis:
-//   skyline_far silhouette = ~#0d1125 (dark navy, almost black)
-//   buildings_mid transparent below image row 140 → game y 154+
-//
-// Strategy: make the gradient genuinely bright (not near-black) so:
-//   1. City-glow purple (#5f35cc) in lower canvas is visible through
-//      rooftop gaps and the transparent zone below buildings_mid.
-//   2. The upper sky is lighter than before so the skyline silhouette
-//      that is shown in the sky zone (via tilePositionY) stands out.
 const NIGHT_GRADIENT = [
-  [0.00, "#1e1650"],   // medium dark purple-blue (zenith)
-  [0.45, "#2d1a88"],   // medium purple (mid-sky)
-  [0.75, "#4525b0"],   // brighter purple (horizon)
-  [1.00, "#5f35cc"],   // strong city glow (ground level)
+  [0.00, "#1e1650"],
+  [0.45, "#2d1a88"],
+  [0.75, "#4525b0"],
+  [1.00, "#5f35cc"],
 ];
 
 // Day sky gradient colour stops (top → bottom)
@@ -41,6 +31,9 @@ const DAY_GRADIENT = [
   [1.00, "#fce4b0"],
 ];
 
+// All city-layer source images are 1024 px wide.
+const CITY_IMG_W = 1024;
+
 // ---------------------------------------------------------------------------
 
 export class BackgroundManager {
@@ -49,10 +42,7 @@ export class BackgroundManager {
    */
   constructor(scene) {
     this.scene = scene;
-
-    // Whether the scene is currently in night mode.
     this._isNight = true;
-
     this._create();
   }
 
@@ -61,8 +51,7 @@ export class BackgroundManager {
   _create() {
     const { width, height } = this.scene.scale;
 
-    // 1. Sky gradient — rendered into a canvas texture so it's a real gradient,
-    //    not a flat colour.  Redrawn when switching day ↔ night.
+    // 1. Sky gradient
     this._buildGradientTexture("sky_gradient_night", NIGHT_GRADIENT, width, height);
     this._buildGradientTexture("sky_gradient_day",   DAY_GRADIENT,   width, height);
 
@@ -77,8 +66,8 @@ export class BackgroundManager {
       .setDepth(0)
       .setAlpha(0);
 
-    // 2. Cloud / star overlay — TileSprites so they tile seamlessly.
-    //    The images are 1024 × 256; position them flush with the top.
+    // 2. Cloud / star overlay — TileSprites scroll on X only, content is
+    //    naturally uniform so any wrap artefact is invisible.
     this._skyNight = this.scene.add
       .tileSprite(0, 0, width, 256, "sky_night")
       .setOrigin(0, 0)
@@ -90,8 +79,7 @@ export class BackgroundManager {
       .setDepth(1)
       .setAlpha(0);
 
-    // 3. Moon and sun — single images that drift slowly across the upper sky.
-    //    Moon is visible at night, sun during the day.
+    // 3. Moon and sun — drift slowly across the upper sky.
     this._moon = this.scene.add
       .image(80, 38, "moon")
       .setOrigin(0.5, 0.5)
@@ -104,80 +92,58 @@ export class BackgroundManager {
       .setDepth(2)
       .setAlpha(0);
 
-    // The image is 128 × 128 at native scale — fine for pixel art (no scaling).
+    // ── City layers ────────────────────────────────────────────────────────
+    //
+    // All three city layers (skyline_far, buildings_mid, roofs_back) use
+    // TWO manually scrolled Image copies instead of TileSprite.  This avoids
+    // the mirror-repeat artefact that Phaser's Canvas TileSprite can produce.
+    //
+    // Pattern: both copies start side-by-side (x=0 and x=CITY_IMG_W).
+    // Each frame both images are moved left by the parallax scroll amount.
+    // When a copy's right edge (x + CITY_IMG_W) reaches 0 it is instantly
+    // repositioned to the right of the other copy, creating a seamless loop.
 
-    // ── City layers ────────────────────────────────────────────────────
-    // All source images are 1024 × 256 px (native pixel art size).
-    //
-    // Measured opaque content zones (from raw RGBA pixel analysis):
-    //   skyline_far  : image rows 105–255  (151 px tall, near-black ~#0d1125)
-    //   buildings_mid: image rows  30–140  (111 px, then transparent below 140)
-    //   roofs_back   : image rows  54–253  (200 px, bright white ridge lines)
-    //
-    // Layout strategy for visibility:
-    //
-    //   a) skyline_far is shown in a 50 px SKY SLOT at the top of the
-    //      canvas (y = 0–50), using tilePositionY=105 to shift the opaque
-    //      content (starting at image row 105) into this visible zone.
-    //      The medium-blue gradient gives enough contrast for the dark navy
-    //      silhouette to read as a distant cityscape.
-    //
-    //   b) buildings_mid and roofs_back sit at their natural layerY position
-    //      (y = height - 256 = 14).  Because buildings_mid is transparent
-    //      below image row 140 (game y ≈ 154), the city-glow gradient
-    //      (#5f35cc at the bottom) glows through in rooftop gaps, creating
-    //      vivid depth in the lower canvas.
-    //
-    // The net vertical zones seen by the viewer:
-    //   y 0–44  : sky (gradient + clouds/stars) + skyline silhouette
-    //   y 44–50 : skyline + buildings start
-    //   y 50–68 : buildings only (rooftops haven't started)
-    //   y 68–154: buildings + foreground rooftops in front
-    //   y 154+  : city-glow gradient visible through rooftop gaps
+    const layerY = height - 256; // 14 px for a 270-tall canvas
 
-    const layerY     = height - 256;   // 14 px for a 270-tall canvas
+    // 4. skyline_far — distant city silhouette.
+    //    The source image has opaque content starting at row 105.
+    //    setCrop(0, 105, CITY_IMG_W, 120) reveals only those rows and places
+    //    them flush with the top of the canvas (y=0), matching the old
+    //    tilePositionY=105 trick used with TileSprite.
+    const SKYLINE_CROP_Y = 105;
+    const SKYLINE_CROP_H = 120;
 
-    // skyline_far slot: extends from y=0 down to y=SKY_SLOT_H.
-    // The slot is taller than the clear-sky zone (game y 0–44) so that the
-    // silhouette continues BEHIND buildings_mid in the overlap zone (y 44–120),
-    // grounding the distant city instead of letting it float.
-    //
-    // Visual zones with SKY_SLOT_H=120, tilePositionY=105:
-    //   game y 0–43   → skyline rows 105–148  (tops, fully visible in clear sky)
-    //   game y 44–119 → skyline rows 149–224  (hidden behind buildings_mid depth 4)
-    const SKY_SLOT_H            = 120; // px
-    const SKYLINE_CONTENT_START = 105; // first opaque image row in skyline_far.png
-
-    // 4. skyline_far — distant city silhouette in the sky/upper zone.
-    this._skylineFar = this.scene.add
-      .tileSprite(0, 0, width, SKY_SLOT_H, "skyline_far")
+    this._skylineFar0 = this.scene.add
+      .image(0, 0, "skyline_far")
       .setOrigin(0, 0)
-      .setDepth(3);
-    this._skylineFar.tilePositionY = SKYLINE_CONTENT_START;
+      .setDepth(3)
+      .setCrop(0, SKYLINE_CROP_Y, CITY_IMG_W, SKYLINE_CROP_H);
 
-    // 5. buildings_mid — apartment facades in their natural position.
-    //    Rows 30–140 produce the lit-window building zone.
-    //    Transparent below row 140, allowing the gradient to show through.
-    this._buildings = this.scene.add
-      .tileSprite(0, layerY, width, 256, "buildings_mid")
+    this._skylineFar1 = this.scene.add
+      .image(CITY_IMG_W, 0, "skyline_far")
+      .setOrigin(0, 0)
+      .setDepth(3)
+      .setCrop(0, SKYLINE_CROP_Y, CITY_IMG_W, SKYLINE_CROP_H);
+
+    // 5. buildings_mid — apartment facades.
+    this._buildings0 = this.scene.add
+      .image(0, layerY, "buildings_mid")
       .setOrigin(0, 0)
       .setDepth(4);
 
-    // 6. roofs_back — foreground rooftop layer (rows 54–253, depth 5).
-    //    Implemented as two manually scrolled images rather than a TileSprite
-    //    to avoid the mirrored-repeat artefact from Phaser's Canvas TileSprite.
-    //    Both copies sit side-by-side; when one scrolls fully off the left edge
-    //    it is repositioned immediately after the other, creating an infinite loop.
-    const ROOFS_IMG_W = 1024; // native image width
-    this._roofsImgW = ROOFS_IMG_W;
+    this._buildings1 = this.scene.add
+      .image(CITY_IMG_W, layerY, "buildings_mid")
+      .setOrigin(0, 0)
+      .setDepth(4);
 
+    // 6. roofs_back — foreground rooftop layer.
     this._roofsBack0 = this.scene.add
       .image(0, layerY, "roofs_back")
       .setOrigin(0, 0)
       .setDepth(5);
 
     this._roofsBack1 = this.scene.add
-      .image(ROOFS_IMG_W, layerY, "roofs_back")
+      .image(CITY_IMG_W, layerY, "roofs_back")
       .setOrigin(0, 0)
       .setDepth(5);
   }
@@ -186,13 +152,8 @@ export class BackgroundManager {
 
   /**
    * Bake a vertical linear gradient into a named Phaser canvas texture.
-   * @param {string} key
-   * @param {Array<[number, string]>} stops  [[position, colour], …]
-   * @param {number} w
-   * @param {number} h
    */
   _buildGradientTexture(key, stops, w, h) {
-    // Remove a stale texture from a previous scene run (happens on HMR reload).
     if (this.scene.textures.exists(key)) {
       this.scene.textures.remove(key);
     }
@@ -207,15 +168,32 @@ export class BackgroundManager {
     tex.refresh();
   }
 
+  /**
+   * Helper: scroll two image copies and wrap the one that leaves the left edge.
+   * @param {Phaser.GameObjects.Image} img0
+   * @param {Phaser.GameObjects.Image} img1
+   * @param {number} dx  pixels to move left this frame
+   */
+  _scrollPair(img0, img1, dx) {
+    img0.x -= dx;
+    img1.x -= dx;
+
+    if (img0.x + CITY_IMG_W <= 0) {
+      img0.x = img1.x + CITY_IMG_W;
+    }
+    if (img1.x + CITY_IMG_W <= 0) {
+      img1.x = img0.x + CITY_IMG_W;
+    }
+  }
+
   // ── Public API ─────────────────────────────────────────────────────────────
 
   /**
    * Call every frame from the scene's update().
    *
-   * @param {number} delta   Phaser delta time in milliseconds.
+   * @param {number} delta       Phaser delta time in milliseconds.
    * @param {number} [worldDelta]  Optional: pixels the world scrolled this
-   *   frame (supplied by gameplay once implemented). Falls back to a constant
-   *   auto-scroll so the parallax is visible during development.
+   *   frame. Falls back to constant auto-scroll during development.
    */
   update(delta, worldDelta) {
     const scroll =
@@ -223,7 +201,7 @@ export class BackgroundManager {
         ? worldDelta
         : AUTO_SCROLL_PX_PER_SEC * (delta / 1000);
 
-    // Cloud / star layers
+    // Cloud / star layers (TileSprite — uniform content, no visible seam)
     this._skyNight.tilePositionX += scroll * PARALLAX.sky;
     this._skyDay.tilePositionX   += scroll * PARALLAX.sky;
 
@@ -232,28 +210,15 @@ export class BackgroundManager {
     this._moon.x += celestialDrift;
     this._sun.x  += celestialDrift;
 
-    // Wrap moon and sun so they never disappear off-screen permanently.
+    // Wrap moon and sun so they never disappear permanently.
     const { width } = this.scene.scale;
-    if (this._moon.x > width  + 80) this._moon.x = -80;
-    if (this._sun.x  > width  + 80) this._sun.x  = -80;
+    if (this._moon.x > width + 80) this._moon.x = -80;
+    if (this._sun.x  > width + 80) this._sun.x  = -80;
 
-    // City parallax layers
-    this._skylineFar.tilePositionX += scroll * PARALLAX.skylineFar;
-    this._buildings.tilePositionX  += scroll * PARALLAX.buildings;
-
-    // roofs_back: manually scroll two image copies for seamless infinite loop.
-    const roofsScroll = scroll * PARALLAX.roofsBack;
-    this._roofsBack0.x -= roofsScroll;
-    this._roofsBack1.x -= roofsScroll;
-
-    // When a copy scrolls fully off the left edge, wrap it to the right of the other.
-    const imgW = this._roofsImgW;
-    if (this._roofsBack0.x + imgW <= 0) {
-      this._roofsBack0.x = this._roofsBack1.x + imgW;
-    }
-    if (this._roofsBack1.x + imgW <= 0) {
-      this._roofsBack1.x = this._roofsBack0.x + imgW;
-    }
+    // City layers — dual-image seamless scroll
+    this._scrollPair(this._skylineFar0, this._skylineFar1, scroll * PARALLAX.skylineFar);
+    this._scrollPair(this._buildings0,  this._buildings1,  scroll * PARALLAX.buildings);
+    this._scrollPair(this._roofsBack0,  this._roofsBack1,  scroll * PARALLAX.roofsBack);
   }
 
   /**
