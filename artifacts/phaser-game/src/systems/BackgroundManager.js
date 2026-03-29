@@ -68,13 +68,15 @@ export class BackgroundManager {
 
     // 2. Cloud / star overlay — TileSprites scroll on X only, content is
     //    naturally uniform so any wrap artefact is invisible.
+    const SKY_SHIFT_Y = 0; // vertical offset for sky/cloud layer
+
     this._skyNight = this.scene.add
-      .tileSprite(0, 0, width, 256, "sky_night")
+      .tileSprite(0, SKY_SHIFT_Y, width, 256, "sky_night")
       .setOrigin(0, 0)
       .setDepth(1);
 
     this._skyDay = this.scene.add
-      .tileSprite(0, 0, width, 256, "sky_day")
+      .tileSprite(0, SKY_SHIFT_Y, width, 256, "sky_day")
       .setOrigin(0, 0)
       .setDepth(1)
       .setAlpha(0);
@@ -112,7 +114,7 @@ export class BackgroundManager {
     const SKYLINE_CROP_Y = 55;
     const SKYLINE_CROP_H = 170;
     // Lift the layer 20 px above the canvas top so even more of the tops show.
-    const SKYLINE_Y = -20;
+    const SKYLINE_Y = -95;
 
     this._skylineFar0 = this.scene.add
       .image(0, SKYLINE_Y, "skyline_far")
@@ -127,24 +129,28 @@ export class BackgroundManager {
       .setCrop(0, SKYLINE_CROP_Y, CITY_IMG_W, SKYLINE_CROP_H);
 
     // 5. buildings_mid — apartment facades.
+    const BUILDINGS_SHIFT_Y = 0; // vertical offset added on top of layerY
+
     this._buildings0 = this.scene.add
-      .image(0, layerY, "buildings_mid")
+      .image(0, layerY + BUILDINGS_SHIFT_Y, "buildings_mid")
       .setOrigin(0, 0)
       .setDepth(4);
 
     this._buildings1 = this.scene.add
-      .image(CITY_IMG_W, layerY, "buildings_mid")
+      .image(CITY_IMG_W, layerY + BUILDINGS_SHIFT_Y, "buildings_mid")
       .setOrigin(0, 0)
       .setDepth(4);
 
     // 6. roofs_back — foreground rooftop layer.
+    const ROOFS_SHIFT_Y = 0; // vertical offset added on top of layerY
+
     this._roofsBack0 = this.scene.add
-      .image(0, layerY, "roofs_back")
+      .image(0, layerY + ROOFS_SHIFT_Y, "roofs_back")
       .setOrigin(0, 0)
       .setDepth(5);
 
     this._roofsBack1 = this.scene.add
-      .image(CITY_IMG_W, layerY, "roofs_back")
+      .image(CITY_IMG_W, layerY + ROOFS_SHIFT_Y, "roofs_back")
       .setOrigin(0, 0)
       .setDepth(5);
   }
