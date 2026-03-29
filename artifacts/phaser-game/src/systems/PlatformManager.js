@@ -157,6 +157,9 @@ export class PlatformManager {
     tile.setOrigin(0, 0);
     tile.setScale(TILE_SCALE);
 
+    // Render in front of all background layers (depths 0 – 5).
+    tile.setDepth(10);
+
     // Restrict the physics body to the very top of the tile only.
     // setSize(w, h, center=false) — sizes are in WORLD px (post-scale).
     tile.body.setSize(TILE_W, BODY_H, false);
