@@ -221,30 +221,84 @@ export class BackgroundManager {
   }
 
   /**
-   * Cross-fade between night and day states.
+   * Drive the full repeating day/night cycle.
+   *
+   * t = 0 → 1 (wraps back to 0 at the end of each cycle).
+   *
+   * Layout:
+   *   [0.00 – 0.50)  Night phase — moon traverses left → right, then fades out.
+   *   [0.50 – 1.00)  Day phase   — sun  traverses left → right, then fades out.
+   *
+   * Sky gradient transitions:
+   *   [0.00 – 0.45]  Night   (sky = 0)
+   *   [0.45 – 0.55]  Dawn    (sky 0 → 1, smoothstep)
+   *   [0.55 – 0.95]  Day     (sky = 1)
+   *   [0.95 – 1.00]  Dusk    (sky 1 → 0, smoothstep)
+   *
+   * @param {number} t  0 – 1 (cycle position)
+   */
+  setCycleProgress(t) {
+    const { width } = this.scene.scale;
+
+    // ── Sky gradient ──────────────────────────────────────────────────────
+    let skyP;
+    if (t < 0.45) {
+      skyP = 0;
+    } else if (t < 0.55) {
+      const x = (t - 0.45) / 0.10;
+      skyP = x * x * (3 - 2 * x); // smoothstep
+    } else if (t < 0.95) {
+      skyP = 1;
+    } else {
+      const x = (t - 0.95) / 0.05;
+      skyP = 1 - x * x * (3 - 2 * x); // smoothstep back to night
+    }
+
+    this._skyGradientNight.setAlpha(1 - skyP);
+    this._skyGradientDay.setAlpha(skyP);
+    this._skyNight.setAlpha(1 - skyP);
+    this._skyDay.setAlpha(skyP);
+    this._isNight = skyP < 0.5;
+
+    // ── Night phase (t ∈ [0, 0.5)) — moon ────────────────────────────────
+    if (t < 0.5) {
+      const nt = t / 0.5; // 0 → 1 within night phase
+
+      // Moon travels across 85 % of the night phase, then fades in the last 15 %.
+      const moveT  = Math.min(1, nt / 0.85);
+      this._moon.x = Phaser.Math.Linear(-80, width + 80, moveT);
+      this._moon.setAlpha(nt <= 0.85 ? 1 : 1 - (nt - 0.85) / 0.15);
+
+      this._sun.setAlpha(0);
+
+    // ── Day phase (t ∈ [0.5, 1.0)) — sun ─────────────────────────────────
+    } else {
+      const dt = (t - 0.5) / 0.5; // 0 → 1 within day phase
+
+      // Sun fades in over first 10 %, travels across 85 %, fades out last 15 %.
+      const moveT = Math.min(1, dt / 0.85);
+      this._sun.x  = Phaser.Math.Linear(-80, width + 80, moveT);
+      let sunAlpha;
+      if (dt < 0.10) {
+        sunAlpha = dt / 0.10;               // fade in
+      } else if (dt > 0.85) {
+        sunAlpha = 1 - (dt - 0.85) / 0.15; // fade out
+      } else {
+        sunAlpha = 1;
+      }
+      this._sun.setAlpha(sunAlpha);
+
+      this._moon.setAlpha(0);
+    }
+  }
+
+  /**
+   * Simple night/day cross-fade (legacy helper — delegates to setCycleProgress).
    * Progress: 0 = fully night, 1 = fully day.
    * @param {number} progress  0 – 1
    */
   setDayNightProgress(progress) {
-    const p = Phaser.Math.Clamp(progress, 0, 1);
-    const { width } = this.scene.scale;
-
-    // Sky gradient and cloud/star cross-fade.
-    this._skyGradientNight.setAlpha(1 - p);
-    this._skyGradientDay.setAlpha(p);
-    this._skyNight.setAlpha(1 - p);
-    this._skyDay.setAlpha(p);
-
-    // Moon sweeps left → right and fades out as night ends.
-    // At p=0 it sits near the left; at p=1 it has drifted off the right edge.
-    this._moon.x = Phaser.Math.Linear(60, width + 80, p);
-    this._moon.setAlpha(1 - p);
-
-    // Sun rises from the left and moves right as day comes in.
-    // At p=0 it is just off-screen left (invisible); at p=1 it rests toward the right.
-    this._sun.x = Phaser.Math.Linear(-80, width - 80, p);
-    this._sun.setAlpha(p);
-
-    this._isNight = p < 0.5;
+    // Map linear 0→1 onto the first half-cycle (night→day dawn) for compatibility.
+    this.setCycleProgress(Phaser.Math.Clamp(progress, 0, 1) * 0.55);
   }
 }

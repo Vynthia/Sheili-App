@@ -58,45 +58,29 @@ export default class GameScene extends Phaser.Scene {
     // Build the parallax background system.
     this._bg = new BackgroundManager(this);
 
-    // ── Night-to-day transition ───────────────────────────────────────────
-    // Total duration of a single night → day transition, in milliseconds.
-    // Increase for a slower, more gradual sunrise; decrease for a faster one.
-    this._DAY_NIGHT_DURATION_MS = 20_000; // 20 seconds
+    // ── Day / night cycle ─────────────────────────────────────────────────
+    // Full cycle = one moon traversal + one sun traversal.
+    // Increase to slow everything down; decrease to speed it up.
+    this._CYCLE_DURATION_MS = 80_000; // 80 s total (40 s night + 40 s day)
 
-    // How long (ms) to stay fully at night before the transition begins.
-    this._DAY_NIGHT_DELAY_MS = 3_000; // 3-second night hold at the start
+    // Accumulated scene time in ms.
+    this._cycleElapsed = 0;
 
-    // Accumulated time since the scene started.
-    this._dayNightElapsed = 0;
-
-    // Start fully at night.
-    this._bg.setDayNightProgress(0);
+    // Initialise at the very start of night.
+    this._bg.setCycleProgress(0);
   }
 
   update(_time, delta) {
-    // Accumulate time and drive the night → day cross-fade.
-    this._dayNightElapsed += delta;
+    // Advance the cycle clock and wrap it within one full cycle.
+    this._cycleElapsed += delta;
+    const cycleProgress =
+      (this._cycleElapsed % this._CYCLE_DURATION_MS) / this._CYCLE_DURATION_MS;
 
-    // Wait for the initial night hold, then ease from 0 → 1.
-    const transitionElapsed = Math.max(
-      0,
-      this._dayNightElapsed - this._DAY_NIGHT_DELAY_MS,
-    );
-    const rawProgress = Math.min(
-      1,
-      transitionElapsed / this._DAY_NIGHT_DURATION_MS,
-    );
+    this._bg.setCycleProgress(cycleProgress);
 
-    // Smoothstep (ease-in-out) so the transition feels gradual at both ends.
-    const smoothProgress =
-      rawProgress * rawProgress * (3 - 2 * rawProgress);
-
-    this._bg.setDayNightProgress(smoothProgress);
-
-    // Pass delta to the background manager.
-    // worldDelta is left undefined here so BackgroundManager auto-scrolls
-    // at a steady pace for preview.  Once gameplay is added, pass the
-    // real world-scroll amount instead.
+    // Pass delta to the background manager for parallax scrolling.
+    // worldDelta is left undefined so BackgroundManager auto-scrolls at a
+    // steady pace for preview; pass the real world-scroll once gameplay exists.
     this._bg.update(delta);
   }
 }
