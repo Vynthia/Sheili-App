@@ -5,16 +5,16 @@ import Phaser from "phaser";
 // Lower = further away / slower.
 // ---------------------------------------------------------------------------
 const PARALLAX = {
-  sky:         0.20,   // clouds drift at a visible rate
-  celestial:   0.01,   // moon / sun are almost fixed
-  skylineFar:  0.22,
-  buildings:   0.30,
-  roofsBack:   0.55,
+  sky:         0.10,   // distant clouds — barely move
+  celestial:   0.01,   // moon / sun — almost fixed
+  skylineFar:  0.28,   // far skyline
+  buildings:   0.52,   // mid buildings
+  roofsBack:   0.85,   // foreground rooftops — fastest
 };
 
 // Auto-scroll speed used when there is no gameplay driving the camera.
 // Replace with the real world-delta value once the player is moving.
-const AUTO_SCROLL_PX_PER_SEC = 80;
+const AUTO_SCROLL_PX_PER_SEC = 200;
 
 // Night sky gradient colour stops (top → bottom).
 const NIGHT_GRADIENT = [
