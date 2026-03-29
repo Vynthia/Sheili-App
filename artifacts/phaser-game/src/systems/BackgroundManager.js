@@ -14,7 +14,7 @@ const PARALLAX = {
 
 // Auto-scroll speed used when there is no gameplay driving the camera.
 // Replace with the real world-delta value once the player is moving.
-const AUTO_SCROLL_PX_PER_SEC = 200;
+const AUTO_SCROLL_PX_PER_SEC = 150;
 
 // Night sky gradient colour stops (top → bottom).
 const NIGHT_GRADIENT = [
