@@ -95,7 +95,8 @@ export class BackgroundManager {
     this._moon = this.scene.add
       .image(80, 38, "moon")
       .setOrigin(0.5, 0.5)
-      .setDepth(2);
+      .setDepth(2)
+      .setScale(0.6);
 
     this._sun = this.scene.add
       .image(400, 34, "sun")
@@ -163,10 +164,20 @@ export class BackgroundManager {
       .setDepth(4);
 
     // 6. roofs_back — foreground rooftop layer (rows 54–253, depth 5).
-    //    Bright white ridge highlights stand out clearly against buildings.
-    //    Transparent gaps in rooftops reveal the city-glow gradient below.
-    this._roofsBack = this.scene.add
-      .tileSprite(0, layerY, width, 256, "roofs_back")
+    //    Implemented as two manually scrolled images rather than a TileSprite
+    //    to avoid the mirrored-repeat artefact from Phaser's Canvas TileSprite.
+    //    Both copies sit side-by-side; when one scrolls fully off the left edge
+    //    it is repositioned immediately after the other, creating an infinite loop.
+    const ROOFS_IMG_W = 1024; // native image width
+    this._roofsImgW = ROOFS_IMG_W;
+
+    this._roofsBack0 = this.scene.add
+      .image(0, layerY, "roofs_back")
+      .setOrigin(0, 0)
+      .setDepth(5);
+
+    this._roofsBack1 = this.scene.add
+      .image(ROOFS_IMG_W, layerY, "roofs_back")
       .setOrigin(0, 0)
       .setDepth(5);
   }
@@ -229,7 +240,20 @@ export class BackgroundManager {
     // City parallax layers
     this._skylineFar.tilePositionX += scroll * PARALLAX.skylineFar;
     this._buildings.tilePositionX  += scroll * PARALLAX.buildings;
-    this._roofsBack.tilePositionX  += scroll * PARALLAX.roofsBack;
+
+    // roofs_back: manually scroll two image copies for seamless infinite loop.
+    const roofsScroll = scroll * PARALLAX.roofsBack;
+    this._roofsBack0.x -= roofsScroll;
+    this._roofsBack1.x -= roofsScroll;
+
+    // When a copy scrolls fully off the left edge, wrap it to the right of the other.
+    const imgW = this._roofsImgW;
+    if (this._roofsBack0.x + imgW <= 0) {
+      this._roofsBack0.x = this._roofsBack1.x + imgW;
+    }
+    if (this._roofsBack1.x + imgW <= 0) {
+      this._roofsBack1.x = this._roofsBack0.x + imgW;
+    }
   }
 
   /**
