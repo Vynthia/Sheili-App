@@ -5,9 +5,9 @@ import Phaser from "phaser";
 // Lower = further away / slower.
 // ---------------------------------------------------------------------------
 const PARALLAX = {
-  sky:         0.04,   // clouds barely drift
+  sky:         0.20,   // clouds drift at a visible rate
   celestial:   0.01,   // moon / sun are almost fixed
-  skylineFar:  0.12,
+  skylineFar:  0.22,
   buildings:   0.30,
   roofsBack:   0.55,
 };
@@ -66,25 +66,34 @@ export class BackgroundManager {
       .setDepth(0)
       .setAlpha(0);
 
-    // 2. Cloud / star overlay — TileSprites scroll on X only, content is
-    //    naturally uniform so any wrap artefact is invisible.
+    // 2. Cloud / star overlay — dual-image pairs (same approach as city
+    //    layers) so that scrolling happens in integer-pixel world coords and
+    //    never stalls due to sub-pixel tilePositionX accumulation.
     const SKY_SHIFT_Y = 0; // vertical offset for sky/cloud layer
+    const SKY_IMG_W = 1024; // width of each sky source image
 
-    this._skyNight = this.scene.add
-      .tileSprite(0, SKY_SHIFT_Y, width, 256, "sky_night")
+    this._skyNight0 = this.scene.add
+      .image(0, SKY_SHIFT_Y, "sky_night")
+      .setOrigin(0, 0)
+      .setDepth(1);
+    this._skyNight1 = this.scene.add
+      .image(SKY_IMG_W, SKY_SHIFT_Y, "sky_night")
       .setOrigin(0, 0)
       .setDepth(1);
 
-    this._skyDay = this.scene.add
-      .tileSprite(0, SKY_SHIFT_Y, width, 256, "sky_day")
+    this._skyDay0 = this.scene.add
+      .image(0, SKY_SHIFT_Y, "sky_day")
+      .setOrigin(0, 0)
+      .setDepth(1)
+      .setAlpha(0);
+    this._skyDay1 = this.scene.add
+      .image(SKY_IMG_W, SKY_SHIFT_Y, "sky_day")
       .setOrigin(0, 0)
       .setDepth(1)
       .setAlpha(0);
 
     // 3. Moon and sun — both 128×128 px sprites, scaled identically.
-    //    A slow continuous rotation tween is added to each so they share
-    //    the same visual animation (spinning rays on the sun, gentle turn on
-    //    the moon).  Neither has a physics body — decorative only.
+    //    A gentle alpha-pulse tween gives both a "sparkling" shimmer effect.
     this._moon = this.scene.add
       .image(80, 38, "moon")
       .setOrigin(0.5, 0.5)
@@ -95,8 +104,19 @@ export class BackgroundManager {
       .image(400, 34, "sun")
       .setOrigin(0.5, 0.5)
       .setDepth(2)
-      .setScale(0.6)   // same scale as moon
+      .setScale(0.6)
       .setAlpha(0);
+
+    // Shared sparkling animation — gentle alpha shimmer on both bodies.
+    const SPARKLE_CFG = {
+      alpha: { from: 0.82, to: 1 },
+      duration: 1800,
+      ease: "Sine.easeInOut",
+      yoyo: true,
+      repeat: -1,
+    };
+    this.scene.tweens.add({ targets: this._moon, ...SPARKLE_CFG });
+    this.scene.tweens.add({ targets: this._sun,  ...SPARKLE_CFG });
 
 
     // ── City layers ────────────────────────────────────────────────────────
@@ -213,9 +233,9 @@ export class BackgroundManager {
         ? worldDelta
         : AUTO_SCROLL_PX_PER_SEC * (delta / 1000);
 
-    // Cloud / star layers (TileSprite — uniform content, no visible seam)
-    this._skyNight.tilePositionX += scroll * PARALLAX.sky;
-    this._skyDay.tilePositionX   += scroll * PARALLAX.sky;
+    // Sky / cloud layers — dual-image seamless scroll
+    this._scrollPair(this._skyNight0, this._skyNight1, scroll * PARALLAX.sky);
+    this._scrollPair(this._skyDay0,   this._skyDay1,   scroll * PARALLAX.sky);
 
     // Moon and sun positions are driven by setDayNightProgress(), not scroll.
 
@@ -261,8 +281,10 @@ export class BackgroundManager {
 
     this._skyGradientNight.setAlpha(1 - skyP);
     this._skyGradientDay.setAlpha(skyP);
-    this._skyNight.setAlpha(1 - skyP);
-    this._skyDay.setAlpha(skyP);
+    this._skyNight0.setAlpha(1 - skyP);
+    this._skyNight1.setAlpha(1 - skyP);
+    this._skyDay0.setAlpha(skyP);
+    this._skyDay1.setAlpha(skyP);
     this._isNight = skyP < 0.5;
 
     // ── Night phase (t ∈ [0, 0.5)) — moon ────────────────────────────────
