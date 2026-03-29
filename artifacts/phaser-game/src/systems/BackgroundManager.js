@@ -111,10 +111,10 @@ export class BackgroundManager {
     //    Start the crop at row 55 (instead of 105) so the skyscraper tops are
     //    revealed higher up in the canvas, then show 170 px of height so the
     //    silhouette extends well behind the buildings_mid layer.
-    const SKYLINE_CROP_Y = 55;
-    const SKYLINE_CROP_H = 170;
+    const SKYLINE_CROP_Y = 0;
+    const SKYLINE_CROP_H = 256;
     // Lift the layer 20 px above the canvas top so even more of the tops show.
-    const SKYLINE_Y = -95;
+    const SKYLINE_Y = 0;
 
     this._skylineFar0 = this.scene.add
       .image(0, SKYLINE_Y, "skyline_far")
@@ -129,7 +129,7 @@ export class BackgroundManager {
       .setCrop(0, SKYLINE_CROP_Y, CITY_IMG_W, SKYLINE_CROP_H);
 
     // 5. buildings_mid — apartment facades.
-    const BUILDINGS_SHIFT_Y = 0; // vertical offset added on top of layerY
+    const BUILDINGS_SHIFT_Y = 40; // vertical offset added on top of layerY
 
     this._buildings0 = this.scene.add
       .image(0, layerY + BUILDINGS_SHIFT_Y, "buildings_mid")
@@ -142,7 +142,7 @@ export class BackgroundManager {
       .setDepth(4);
 
     // 6. roofs_back — foreground rooftop layer.
-    const ROOFS_SHIFT_Y = 0; // vertical offset added on top of layerY
+    const ROOFS_SHIFT_Y = 35; // vertical offset added on top of layerY
 
     this._roofsBack0 = this.scene.add
       .image(0, layerY + ROOFS_SHIFT_Y, "roofs_back")

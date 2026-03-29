@@ -58,11 +58,41 @@ export default class GameScene extends Phaser.Scene {
     // Build the parallax background system.
     this._bg = new BackgroundManager(this);
 
-    // Start at night (progress 0 = fully night).
+    // ── Night-to-day transition ───────────────────────────────────────────
+    // Total duration of a single night → day transition, in milliseconds.
+    // Increase for a slower, more gradual sunrise; decrease for a faster one.
+    this._DAY_NIGHT_DURATION_MS = 60_000; // 60 seconds
+
+    // How long (ms) to stay fully at night before the transition begins.
+    this._DAY_NIGHT_DELAY_MS = 5_000; // 5-second night hold at the start
+
+    // Accumulated time since the scene started.
+    this._dayNightElapsed = 0;
+
+    // Start fully at night.
     this._bg.setDayNightProgress(0);
   }
 
   update(_time, delta) {
+    // Accumulate time and drive the night → day cross-fade.
+    this._dayNightElapsed += delta;
+
+    // Wait for the initial night hold, then ease from 0 → 1.
+    const transitionElapsed = Math.max(
+      0,
+      this._dayNightElapsed - this._DAY_NIGHT_DELAY_MS,
+    );
+    const rawProgress = Math.min(
+      1,
+      transitionElapsed / this._DAY_NIGHT_DURATION_MS,
+    );
+
+    // Smoothstep (ease-in-out) so the transition feels gradual at both ends.
+    const smoothProgress =
+      rawProgress * rawProgress * (3 - 2 * rawProgress);
+
+    this._bg.setDayNightProgress(smoothProgress);
+
     // Pass delta to the background manager.
     // worldDelta is left undefined here so BackgroundManager auto-scrolls
     // at a steady pace for preview.  Once gameplay is added, pass the
