@@ -81,7 +81,10 @@ export class BackgroundManager {
       .setDepth(1)
       .setAlpha(0);
 
-    // 3. Moon and sun — drift slowly across the upper sky.
+    // 3. Moon and sun — both 128×128 px sprites, scaled identically.
+    //    A slow continuous rotation tween is added to each so they share
+    //    the same visual animation (spinning rays on the sun, gentle turn on
+    //    the moon).  Neither has a physics body — decorative only.
     this._moon = this.scene.add
       .image(80, 38, "moon")
       .setOrigin(0.5, 0.5)
@@ -92,8 +95,25 @@ export class BackgroundManager {
       .image(400, 34, "sun")
       .setOrigin(0.5, 0.5)
       .setDepth(2)
-      .setScale(0.5)
+      .setScale(0.6)   // same scale as moon
       .setAlpha(0);
+
+    // Shared rotation animation — one full turn every 40 s.
+    const ROTATION_DURATION_MS = 40_000;
+    this.scene.tweens.add({
+      targets: this._moon,
+      angle: 360,
+      duration: ROTATION_DURATION_MS,
+      ease: "Linear",
+      repeat: -1,
+    });
+    this.scene.tweens.add({
+      targets: this._sun,
+      angle: 360,
+      duration: ROTATION_DURATION_MS,
+      ease: "Linear",
+      repeat: -1,
+    });
 
     // ── City layers ────────────────────────────────────────────────────────
     //
