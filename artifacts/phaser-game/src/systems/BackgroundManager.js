@@ -277,8 +277,10 @@ export class BackgroundManager {
       const dt = (t - 0.5) / 0.5; // 0 → 1 within day phase
 
       // Sun appears immediately, travels across 85 % of the phase, fades out last 15 %.
+      // X: left → right.  Y: arcs gently downward from 30 px to 55 px (left → right).
       const moveT = Math.min(1, dt / 0.85);
-      this._sun.x  = Phaser.Math.Linear(-80, width + 80, moveT);
+      this._sun.x = Phaser.Math.Linear(-80, width + 80, moveT);
+      this._sun.y = Phaser.Math.Linear(30, 55, moveT);
       const sunAlpha = dt > 0.85 ? 1 - (dt - 0.85) / 0.15 : 1;
       this._sun.setAlpha(sunAlpha);
 
