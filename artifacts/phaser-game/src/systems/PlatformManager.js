@@ -1,38 +1,37 @@
 import Phaser from "phaser";
 
 // ---------------------------------------------------------------------------
-// Tile display constants
+// Tile constants
 // ---------------------------------------------------------------------------
-const TILE_SCALE = 1.75;
-const TILE_W     = Math.round(256 * TILE_SCALE); // 192 px world-space
-const TILE_H     = Math.round(128 * TILE_SCALE); //  96 px world-space
+const TILE_SCALE = 0.75;
+const TILE_W     = Math.round(256 * TILE_SCALE); // 192 px — exact integer, no gaps
+const TILE_H     = Math.round(128 * TILE_SCALE); //  96 px
 
-// ---------------------------------------------------------------------------
-// Platform surface
-// Y coordinate of the TOP edge of each tile — the floor the player runs on.
-// ---------------------------------------------------------------------------
-const PLATFORM_Y = 50;
+// Y of the TOP edge of each tile (= the player's floor).
+const PLATFORM_Y = 175;
 
-// Height of the physics collision body (top strip only), in world px.
+// Physics collision body: thin strip at the very top of each tile.
 const BODY_H = 10;
 
 // ---------------------------------------------------------------------------
-// Scroll speed — must match AUTO_SCROLL_PX_PER_SEC in BackgroundManager.
+// Scroll speed — keep in sync with AUTO_SCROLL_PX_PER_SEC in BackgroundManager.
 // ---------------------------------------------------------------------------
 const SCROLL_SPEED = 150; // px / s
 
 // ---------------------------------------------------------------------------
-// Segment generation
+// Generation parameters
 // ---------------------------------------------------------------------------
-const MID_MIN = 0; // minimum middle tiles per segment
-const MID_MAX = 3; // maximum middle tiles per segment
+// Probability that a gap is inserted between two consecutive runs.
+const GAP_CHANCE = 0.25;
 
-const GAP_MIN = 55;  // px between consecutive segments
+const GAP_MIN = 60;  // px — always integer-rounded before use
 const GAP_MAX = 140;
 
-// Spawn new segments when the screen-space right edge is closer than this
-// many px to the right side of the canvas.
-const SPAWN_AHEAD = 400;
+const MID_MIN = 1; // minimum middle tiles per run
+const MID_MAX = 4; // maximum middle tiles per run
+
+// Pre-spawn this many px ahead of the right canvas edge.
+const SPAWN_AHEAD = 450;
 
 // ---------------------------------------------------------------------------
 
@@ -44,19 +43,16 @@ export class PlatformManager {
     // Static physics group — attach player collider to this in GameScene.
     this._group = scene.physics.add.staticGroup();
 
-    // Ordered list of live segments (oldest = index 0 = leftmost).
-    this._segments = [];
+    // Flat ordered list of live tile objects (leftmost at index 0).
+    this._tiles = [];
 
-    // Accumulated scroll in float px — kept as a float to preserve sub-pixel
-    // precision; integer part is applied to tile positions each frame.
+    // Float accumulator for sub-pixel scroll precision.
     this._scrollOffset = 0;
 
-    // Seed the screen at scroll = 0 (screen coords == world coords at t=0).
+    // Seed with seamless runs (no gaps) until the canvas + lookahead is filled.
     const canvasW = scene.scale.width;
-    let nextScreenX = 0;
-    while (nextScreenX < canvasW + SPAWN_AHEAD) {
-      nextScreenX = this._spawnSegment(nextScreenX);
-      nextScreenX += this._randomGap();
+    while (this._getRightEdge() < canvasW + SPAWN_AHEAD) {
+      this._spawnRun(this._getRightEdge(), false);
     }
   }
 
@@ -73,93 +69,91 @@ export class PlatformManager {
     this._scrollOffset += SCROLL_SPEED * (delta / 1000);
     const px = Math.round(this._scrollOffset);
 
-    // Move every tile to its integer screen position and sync its body.
-    for (const seg of this._segments) {
-      for (const tile of seg.tiles) {
-        tile.x = tile._worldX - px;
-        tile.refreshBody();
-      }
+    // Reposition every tile using integer screen coords derived from the float
+    // accumulator — prevents sub-pixel stutter under roundPixels mode.
+    for (const tile of this._tiles) {
+      tile.x = tile._worldX - px;
+      tile.refreshBody();
     }
 
-    // Recycle segments whose last tile has left the left edge of the screen.
-    while (this._segments.length > 0) {
-      const seg      = this._segments[0];
-      const lastTile = seg.tiles[seg.tiles.length - 1];
-      if (lastTile.x + TILE_W < 0) {
-        seg.tiles.forEach(t => t.destroy());
-        this._segments.shift();
-      } else {
-        break;
-      }
+    // Recycle tiles that have fully scrolled off the left edge.
+    while (this._tiles.length > 0 && this._tiles[0].x + TILE_W < 0) {
+      this._tiles.shift().destroy();
     }
 
-    // Spawn ahead: all comparisons in SCREEN space via _getRightEdge().
+    // Spawn new runs ahead as needed.
     const canvasW = this.scene.scale.width;
     while (this._getRightEdge() < canvasW + SPAWN_AHEAD) {
-      const nextX = this._getRightEdge() + this._randomGap();
-      this._spawnSegment(nextX);
+      const edge    = this._getRightEdge();
+      const addGap  = Math.random() < GAP_CHANCE;
+
+      if (addGap) {
+        // Integer gap width so the landing tile lands on a whole pixel.
+        const gapW = Math.round(GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN));
+        this._spawnRun(edge + gapW, true);   // landing tile first
+      } else {
+        this._spawnRun(edge, false);          // seamless continuation
+      }
     }
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
 
   /**
-   * Spawn one segment whose left tile starts at screen-X `screenStartX`.
-   * Returns the screen-X of the right edge of the new segment.
+   * Spawn one platform run starting at `screenStartX`.
    *
-   * _worldX for each tile = screenStartX + current integer scroll offset,
-   * so that on subsequent frames: tile.x = _worldX - newPx = correct position.
+   * If `withLanding` is true, a roof_landing tile is placed first (always
+   * immediately after a gap), followed by a normal left→mid…→right run.
+   *
+   * All x positions are rounded to whole pixels so tiles butt up seamlessly.
    */
-  _spawnSegment(screenStartX) {
-    const midCount = MID_MIN + Math.floor(Math.random() * (MID_MAX - MID_MIN + 1));
-    const px       = Math.round(this._scrollOffset);
-    const tiles    = [];
-    let   sx       = screenStartX;
+  _spawnRun(screenStartX, withLanding) {
+    const px  = Math.round(this._scrollOffset);
+    let   sx  = Math.round(screenStartX); // ← integer snap, eliminates all gaps
 
-    tiles.push(this._makeTile("roof_left", sx, px));   sx += TILE_W;
-    for (let i = 0; i < midCount; i++) {
-      tiles.push(this._makeTile("roof_middle", sx, px)); sx += TILE_W;
+    if (withLanding) {
+      this._addTile("roof_landing", sx, px);
+      sx += TILE_W;
     }
-    tiles.push(this._makeTile("roof_right", sx, px));  sx += TILE_W;
 
-    this._segments.push({ tiles });
-    return sx; // screen-space right edge at this moment
+    const midCount = MID_MIN + Math.floor(Math.random() * (MID_MAX - MID_MIN + 1));
+    this._addTile("roof_left", sx, px);   sx += TILE_W;
+    for (let i = 0; i < midCount; i++) {
+      this._addTile("roof_middle", sx, px); sx += TILE_W;
+    }
+    this._addTile("roof_right", sx, px);  sx += TILE_W;
   }
 
   /**
-   * Create one tile in the static physics group, configure its body, and
-   * record its world X so it can be repositioned every frame.
+   * Create one physics-enabled tile, configure its body to the top surface
+   * strip only, and track its immutable world X for per-frame repositioning.
    */
-  _makeTile(key, screenX, px) {
+  _addTile(key, screenX, px) {
     const tile = this._group.create(screenX, PLATFORM_Y, key);
     tile.setOrigin(0, 0);
     tile.setScale(TILE_SCALE);
     tile.setDepth(10);
 
-    // Restrict collision to the top surface strip only.
+    // Body covers only the top BODY_H pixels — collision is fair and sharp.
     tile.body.setSize(TILE_W, BODY_H, false);
     tile.body.setOffset(0, 0);
     tile.refreshBody();
 
-    // World X is fixed for the lifetime of this tile.
-    // Each frame: tile.x = _worldX - Math.round(scrollOffset)
+    // _worldX is an integer (screenX rounded + integer px), so tile.x is
+    // always exactly an integer — no fractional rendering, no 1-px gaps.
     tile._worldX = screenX + px;
 
+    this._tiles.push(tile);
     return tile;
   }
 
   /**
-   * Current screen-X of the right edge of the rightmost live tile.
-   * Returns 0 when no segments exist.
+   * Screen-space X of the right edge of the rightmost live tile.
+   * Returns 0 when no tiles exist.
    */
   _getRightEdge() {
-    if (this._segments.length === 0) return 0;
-    const last     = this._segments[this._segments.length - 1];
-    const lastTile = last.tiles[last.tiles.length - 1];
-    return lastTile.x + TILE_W; // tile.x is always the current screen position
-  }
-
-  _randomGap() {
-    return GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN);
+    if (this._tiles.length === 0) return 0;
+    const last = this._tiles[this._tiles.length - 1];
+    return last.x + TILE_W;
   }
 }
