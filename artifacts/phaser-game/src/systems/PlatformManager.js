@@ -20,9 +20,9 @@ const TARGET_SURFACE_Y = 240; // screen Y where the brick floor appears
 
 const TILE_SURFACE_ROW = {
   roof_left:    86,
-  roof_middle:  89,
-  roof_right:   88,
-  roof_landing: 93,
+  roof_middle:  86,
+  roof_right:   86,
+  roof_landing: 85,
 };
 
 // Physics collision body: thin strip right at the brick surface.
