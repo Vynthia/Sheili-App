@@ -7,31 +7,41 @@ const TILE_SCALE = 0.75;
 const TILE_W     = Math.round(256 * TILE_SCALE); // 192 px — exact integer, no gaps
 const TILE_H     = Math.round(128 * TILE_SCALE); //  96 px
 
-// Y of the TOP edge of each tile (= the player's floor).
-const PLATFORM_Y = 175;
+// ---------------------------------------------------------------------------
+// Per-tile calibration — the pixel row (in the 128-tall source texture) where
+// the actual brick surface begins.  Measured from the raw PNG pixel data:
+//   roof_left    firstRow=86   roof_right   firstRow=88
+//   roof_middle  firstRow=89   roof_landing firstRow=93
+//
+// Each tile's sprite Y is calculated so that its brick surface lands exactly
+// at TARGET_SURFACE_Y, making every tile appear at the same visual height.
+// ---------------------------------------------------------------------------
+const TARGET_SURFACE_Y = 240; // screen Y where the brick floor appears
 
-// Physics collision body: thin strip at the very top of each tile.
+const TILE_SURFACE_ROW = {
+  roof_left:    86,
+  roof_middle:  89,
+  roof_right:   88,
+  roof_landing: 93,
+};
+
+// Physics collision body: thin strip right at the brick surface.
 const BODY_H = 10;
 
 // ---------------------------------------------------------------------------
-// Scroll speed — keep in sync with AUTO_SCROLL_PX_PER_SEC in BackgroundManager.
+// Scroll speed — keep in sync with BackgroundManager.
 // ---------------------------------------------------------------------------
 const SCROLL_SPEED = 150; // px / s
 
 // ---------------------------------------------------------------------------
 // Generation parameters
 // ---------------------------------------------------------------------------
-// Probability that a gap is inserted between two consecutive runs.
-const GAP_CHANCE = 0.25;
-
-const GAP_MIN = 60;  // px — always integer-rounded before use
-const GAP_MAX = 140;
-
-const MID_MIN = 1; // minimum middle tiles per run
-const MID_MAX = 4; // maximum middle tiles per run
-
-// Pre-spawn this many px ahead of the right canvas edge.
-const SPAWN_AHEAD = 450;
+const GAP_CHANCE = 0.25;   // probability of a gap between runs
+const GAP_MIN    = 60;     // min gap width in px (always integer-rounded)
+const GAP_MAX    = 140;    // max gap width in px
+const MID_MIN    = 1;      // minimum middle tiles per run
+const MID_MAX    = 4;      // maximum middle tiles per run
+const SPAWN_AHEAD = 450;   // px ahead of right canvas edge to keep filled
 
 // ---------------------------------------------------------------------------
 
@@ -84,13 +94,12 @@ export class PlatformManager {
     // Spawn new runs ahead as needed.
     const canvasW = this.scene.scale.width;
     while (this._getRightEdge() < canvasW + SPAWN_AHEAD) {
-      const edge    = this._getRightEdge();
-      const addGap  = Math.random() < GAP_CHANCE;
+      const edge   = this._getRightEdge();
+      const addGap = Math.random() < GAP_CHANCE;
 
       if (addGap) {
-        // Integer gap width so the landing tile lands on a whole pixel.
         const gapW = Math.round(GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN));
-        this._spawnRun(edge + gapW, true);   // landing tile first
+        this._spawnRun(edge + gapW, true);   // landing tile first, then run
       } else {
         this._spawnRun(edge, false);          // seamless continuation
       }
@@ -101,15 +110,12 @@ export class PlatformManager {
 
   /**
    * Spawn one platform run starting at `screenStartX`.
-   *
-   * If `withLanding` is true, a roof_landing tile is placed first (always
-   * immediately after a gap), followed by a normal left→mid…→right run.
-   *
-   * All x positions are rounded to whole pixels so tiles butt up seamlessly.
+   * withLanding=true prepends a roof_landing tile (always right after a gap).
+   * All x positions are rounded to whole pixels — no sub-pixel gaps possible.
    */
   _spawnRun(screenStartX, withLanding) {
-    const px  = Math.round(this._scrollOffset);
-    let   sx  = Math.round(screenStartX); // ← integer snap, eliminates all gaps
+    const px = Math.round(this._scrollOffset);
+    let   sx = Math.round(screenStartX);
 
     if (withLanding) {
       this._addTile("roof_landing", sx, px);
@@ -117,33 +123,41 @@ export class PlatformManager {
     }
 
     const midCount = MID_MIN + Math.floor(Math.random() * (MID_MAX - MID_MIN + 1));
-    this._addTile("roof_left", sx, px);   sx += TILE_W;
+    this._addTile("roof_left",   sx, px); sx += TILE_W;
     for (let i = 0; i < midCount; i++) {
       this._addTile("roof_middle", sx, px); sx += TILE_W;
     }
-    this._addTile("roof_right", sx, px);  sx += TILE_W;
+    this._addTile("roof_right",  sx, px); sx += TILE_W;
   }
 
   /**
-   * Create one physics-enabled tile, configure its body to the top surface
-   * strip only, and track its immutable world X for per-frame repositioning.
+   * Create one physics-enabled tile.
+   *
+   * The sprite Y is calculated per-tile-type so that every tile's brick
+   * surface lands exactly at TARGET_SURFACE_Y, regardless of how much
+   * transparent space sits above the art in each source PNG.
+   * The physics body is offset to match that same Y so collision is accurate.
    */
   _addTile(key, screenX, px) {
-    const tile = this._group.create(screenX, PLATFORM_Y, key);
+    // Determine sprite Y so this tile's brick top aligns with TARGET_SURFACE_Y.
+    const surfaceRow  = TILE_SURFACE_ROW[key] ?? 86;
+    const bodyOffsetY = Math.round(surfaceRow * TILE_SCALE); // px from sprite top
+    const spriteY     = TARGET_SURFACE_Y - bodyOffsetY;
+
+    const tile = this._group.create(screenX, spriteY, key);
     tile.setOrigin(0, 0);
-    // Display 1 px wider than the logical step so tiles overlap slightly —
-    // this seals any sub-pixel crack the canvas rasterizer could leave at a
-    // 0.75× scale boundary, regardless of exact tile artwork edge content.
+
+    // +2 px display width seals any sub-pixel crack the canvas rasterizer
+    // might leave at a 0.75× scale boundary.
     tile.setDisplaySize(TILE_W + 2, TILE_H);
     tile.setDepth(10);
 
-    // Body covers only the top BODY_H pixels — collision is fair and sharp.
+    // Collision body sits exactly at the visible brick surface.
     tile.body.setSize(TILE_W, BODY_H, false);
-    tile.body.setOffset(0, 0);
+    tile.body.setOffset(0, bodyOffsetY);
     tile.refreshBody();
 
-    // _worldX is an integer (screenX rounded + integer px), so tile.x is
-    // always exactly an integer — no fractional rendering, no 1-px gaps.
+    // _worldX is always an integer → tile.x is always an integer → no gaps.
     tile._worldX = screenX + px;
 
     this._tiles.push(tile);
