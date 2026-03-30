@@ -3,7 +3,7 @@ import Phaser from "phaser";
 // ---------------------------------------------------------------------------
 // Tile display constants
 // ---------------------------------------------------------------------------
-const TILE_SCALE = 0.75;
+const TILE_SCALE = 1.75;
 const TILE_W     = Math.round(256 * TILE_SCALE); // 192 px world-space
 const TILE_H     = Math.round(128 * TILE_SCALE); //  96 px world-space
 
@@ -11,7 +11,7 @@ const TILE_H     = Math.round(128 * TILE_SCALE); //  96 px world-space
 // Platform surface
 // Y coordinate of the TOP edge of each tile — the floor the player runs on.
 // ---------------------------------------------------------------------------
-const PLATFORM_Y = 175;
+const PLATFORM_Y = 50;
 
 // Height of the physics collision body (top strip only), in world px.
 const BODY_H = 10;
