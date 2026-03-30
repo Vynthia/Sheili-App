@@ -28,8 +28,10 @@ const CROP_H    = 128 - CROP_TOP; // = 37 rows (texture space)
 const BODY_OFFSET_Y = Math.round(CROP_TOP * TILE_SCALE); // 68 px
 
 // The screen Y where the brick surface appears — every tile aligned to this line.
-const TARGET_SURFACE_Y = 240;
-const PLATFORM_Y       = TARGET_SURFACE_Y - BODY_OFFSET_Y; // 172 — same for all
+// Set so the tile bottom (PLATFORM_Y + TILE_H = 176+96 = 272) extends just
+// past the 270 px canvas edge, leaving no visible gap below the platform.
+const TARGET_SURFACE_Y = 244;
+const PLATFORM_Y       = TARGET_SURFACE_Y - BODY_OFFSET_Y; // 176 — same for all
 
 // Physics strip: thin bar at the very top of the visible brick.
 const BODY_H = 10;
