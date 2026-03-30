@@ -72,38 +72,39 @@ export class BackgroundManager {
     const SKY_SHIFT_Y = 0; // vertical offset for sky/cloud layer
     const SKY_IMG_W = 1024; // width of each sky source image
 
+    // Sky cloud / star layers sit at depth 2 — in FRONT of the celestial
+    // bodies (depth 1) so the moon and sun can pass behind the clouds.
     this._skyNight0 = this.scene.add
       .image(0, SKY_SHIFT_Y, "sky_night")
       .setOrigin(0, 0)
-      .setDepth(1);
+      .setDepth(2);
     this._skyNight1 = this.scene.add
       .image(SKY_IMG_W, SKY_SHIFT_Y, "sky_night")
       .setOrigin(0, 0)
-      .setDepth(1);
+      .setDepth(2);
 
     this._skyDay0 = this.scene.add
       .image(0, SKY_SHIFT_Y, "sky_day")
       .setOrigin(0, 0)
-      .setDepth(1)
+      .setDepth(2)
       .setAlpha(0);
     this._skyDay1 = this.scene.add
       .image(SKY_IMG_W, SKY_SHIFT_Y, "sky_day")
       .setOrigin(0, 0)
-      .setDepth(1)
+      .setDepth(2)
       .setAlpha(0);
 
-    // 3. Moon and sun — both 128×128 px sprites, scaled identically.
-    //    A gentle alpha-pulse tween gives both a "sparkling" shimmer effect.
+    // 3. Moon and sun — depth 1: behind clouds (depth 2), in front of gradient (depth 0).
     this._moon = this.scene.add
       .image(80, 38, "moon")
       .setOrigin(0.5, 0.5)
-      .setDepth(2)
+      .setDepth(1)
       .setScale(0.6);
 
     this._sun = this.scene.add
       .image(400, 34, "sun")
       .setOrigin(0.5, 0.5)
-      .setDepth(2)
+      .setDepth(1)
       .setScale(0.6)
       .setAlpha(0);
 

@@ -131,7 +131,10 @@ export class PlatformManager {
   _addTile(key, screenX, px) {
     const tile = this._group.create(screenX, PLATFORM_Y, key);
     tile.setOrigin(0, 0);
-    tile.setScale(TILE_SCALE);
+    // Display 1 px wider than the logical step so tiles overlap slightly —
+    // this seals any sub-pixel crack the canvas rasterizer could leave at a
+    // 0.75× scale boundary, regardless of exact tile artwork edge content.
+    tile.setDisplaySize(TILE_W + 2, TILE_H);
     tile.setDepth(10);
 
     // Body covers only the top BODY_H pixels — collision is fair and sharp.
