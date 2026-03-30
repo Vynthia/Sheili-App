@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { BackgroundManager } from "../systems/BackgroundManager.js";
 import { PlatformManager }   from "../systems/PlatformManager.js";
+import { CatPlayer }         from "../systems/CatPlayer.js";
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -25,28 +26,12 @@ export default class GameScene extends Phaser.Scene {
     this.load.image("roof_right",   "assets/platform/roof_right.png");
     this.load.image("roof_landing", "assets/platform/roof_landing.png");
 
-    // ── Obstacles ──────────────────────────────────────────────────────
-    this.load.image("chimney",  "assets/obstacles/chimney.png");
-    this.load.image("antenna",  "assets/obstacles/antenna.png");
-    this.load.image("vent",     "assets/obstacles/vent.png");
-    this.load.image("skylight", "assets/obstacles/skylight.png");
-
     // ── Cat ────────────────────────────────────────────────────────────
+    // cat_start is a single 128 × 128 idle pose.
     this.load.image("cat_start", "assets/cat/cat_start.png");
+    // cat_run is a 512 × 128 horizontal spritesheet — 4 frames of 128 × 128.
     this.load.spritesheet("cat_run", "assets/cat/cat_run.png", {
-      frameWidth: 128,
-      frameHeight: 128,
-    });
-
-    // ── Enemy ──────────────────────────────────────────────────────────
-    // catcher_run: 512 × 128 → 4 frames of 128 × 128
-    this.load.spritesheet("catcher_run", "assets/enemy/catcher_run.png", {
-      frameWidth: 128,
-      frameHeight: 128,
-    });
-    // catcher_catch: 256 × 128 → 2 frames of 128 × 128
-    this.load.spritesheet("catcher_catch", "assets/enemy/catcher_catch.png", {
-      frameWidth: 128,
+      frameWidth:  128,
       frameHeight: 128,
     });
   }
@@ -56,38 +41,36 @@ export default class GameScene extends Phaser.Scene {
     // is the only sky colour source.
     this.cameras.main.setBackgroundColor(0x000000);
 
-    // Build the parallax background system.
+    // ── Background ────────────────────────────────────────────────────────
     this._bg = new BackgroundManager(this);
 
-    // Build the playable platform system.
-    // PlatformManager exposes a static physics group (.group) that
-    // GameScene can use to attach a player collider when the cat is added.
+    // ── Platforms ─────────────────────────────────────────────────────────
     this._platforms = new PlatformManager(this);
 
+    // ── Player ────────────────────────────────────────────────────────────
+    // CatPlayer adds itself to the scene and attaches its own collider with
+    // the platform StaticGroup; no further wiring needed here.
+    this._cat = new CatPlayer(this, this._platforms.group);
+
     // ── Day / night cycle ─────────────────────────────────────────────────
-    // Full cycle = one moon traversal + one sun traversal.
-    // Increase to slow everything down; decrease to speed it up.
     this._CYCLE_DURATION_MS = 80_000; // 80 s total (40 s night + 40 s day)
-
-    // Accumulated scene time in ms.
     this._cycleElapsed = 0;
-
-    // Initialise at the very start of night.
     this._bg.setCycleProgress(0);
   }
 
   update(_time, delta) {
-    // Advance the cycle clock and wrap it within one full cycle.
+    // Advance the cycle clock.
     this._cycleElapsed += delta;
     const cycleProgress =
       (this._cycleElapsed % this._CYCLE_DURATION_MS) / this._CYCLE_DURATION_MS;
 
     this._bg.setCycleProgress(cycleProgress);
-
-    // Pass delta to the background manager for parallax scrolling.
     this._bg.update(delta);
 
-    // Scroll platforms and recycle / spawn segments.
+    // Scroll platforms and manage tile recycling.
     this._platforms.update(delta);
+
+    // Update the player (pin x, watch for landing, drive state machine).
+    this._cat.update();
   }
 }
