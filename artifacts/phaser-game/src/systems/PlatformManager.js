@@ -20,8 +20,8 @@ const TARGET_SURFACE_Y = 240; // screen Y where the brick floor appears
 
 const TILE_SURFACE_ROW = {
   roof_left:    86,
-  roof_middle:  86,
-  roof_right:   86,
+  roof_middle:  91,
+  roof_right:   83,
   roof_landing: 85,
 };
 
