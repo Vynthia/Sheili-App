@@ -14,6 +14,10 @@ const CAT_SCALE = 0.5;
 // Local gravity (world gravity is 0).
 const GRAVITY_Y = 900;
 
+// Jump impulse applied on take-off (negative = upward).
+// Peak height = JUMP_VEL² / (2 × GRAVITY_Y) ≈ 420² / 1800 ≈ 98 game-px.
+const JUMP_VEL = -420;
+
 // Run animation frame rate.
 const RUN_FPS = 8;
 
@@ -25,6 +29,14 @@ export class CatPlayer {
    */
   constructor(scene, platformGroup, surfaceY) {
     this._scene = scene;
+
+    // ── State ─────────────────────────────────────────────────────────────
+    // 'running'  – on the ground, run animation active.
+    // 'airborne' – in the air; animation paused until landing.
+    this._state = 'running';
+
+    // Consumed once per update() — set by the pointerdown listener below.
+    this._jumpRequested = false;
 
     // ── Animation (register once) ──────────────────────────────────────────
     if (!scene.anims.exists("cat-run")) {
@@ -45,8 +57,6 @@ export class CatPlayer {
     this._sprite.setScale(CAT_SCALE);
     this._sprite.setDepth(15);
     this._sprite.setFlipX(false);
-
-    // Start running immediately — no idle/fall-in transition.
     this._sprite.play("cat-run");
 
     // ── Physics body ──────────────────────────────────────────────────────
@@ -60,14 +70,63 @@ export class CatPlayer {
 
     // ── Collider ──────────────────────────────────────────────────────────
     scene.physics.add.collider(this._sprite, platformGroup);
+
+    // ── Input ─────────────────────────────────────────────────────────────
+    // Keyboard: Space and Up arrow.
+    // JustDown() detects a single press this frame, so holding the key down
+    // does not fire repeatedly.
+    this._keys = scene.input.keyboard.addKeys({
+      up:    Phaser.Input.Keyboard.KeyCodes.UP,
+      space: Phaser.Input.Keyboard.KeyCodes.SPACE,
+    });
+
+    // Pointer: mouse click + touch.
+    // Set a flag and consume it in update() — avoids multi-fire on held touch.
+    scene.input.on('pointerdown', () => {
+      this._jumpRequested = true;
+    });
+  }
+
+  // ── Private ───────────────────────────────────────────────────────────────
+
+  _doJump() {
+    this._sprite.body.setVelocityY(JUMP_VEL);
+    this._state = 'airborne';
+
+    // Freeze the run animation mid-stride while airborne.
+    this._sprite.anims.pause();
   }
 
   // ── Public ────────────────────────────────────────────────────────────────
 
   /** Call every frame from GameScene.update(). */
   update() {
+    const body     = this._sprite.body;
+    const onGround = body.blocked.down;
+
     // Keep the cat pinned horizontally — the world scrolls, not the cat.
-    this._sprite.body.setVelocityX(0);
+    body.setVelocityX(0);
+
+    // ── Landing detection ─────────────────────────────────────────────────
+    if (this._state === 'airborne' && onGround) {
+      this._state = 'running';
+      this._sprite.play('cat-run');
+    }
+
+    // ── Jump input ────────────────────────────────────────────────────────
+    // Only allowed when grounded; prevents double-jumps.
+    if (onGround) {
+      const keyPressed =
+        Phaser.Input.Keyboard.JustDown(this._keys.up) ||
+        Phaser.Input.Keyboard.JustDown(this._keys.space);
+
+      if (keyPressed || this._jumpRequested) {
+        this._doJump();
+      }
+    }
+
+    // Always consume the pointer flag so it doesn't fire again next frame.
+    this._jumpRequested = false;
   }
 
   get sprite() { return this._sprite; }
