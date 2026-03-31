@@ -71,6 +71,6 @@ export default class GameScene extends Phaser.Scene {
     this._platforms.update(delta);
 
     // Update the player (pin x, watch for landing, drive state machine).
-    this._cat.update();
+    this._cat.update(delta);
   }
 }
