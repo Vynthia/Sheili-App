@@ -15,8 +15,8 @@ const CAT_SCALE = 0.5;
 const GRAVITY_Y = 900;
 
 // Jump impulse applied on take-off (negative = upward).
-// Peak height = JUMP_VEL² / (2 × GRAVITY_Y) ≈ 420² / 1800 ≈ 98 game-px.
-const JUMP_VEL = -420;
+// Peak height = JUMP_VEL² / (2 × GRAVITY_Y) ≈ 310² / 1800 ≈ 53 game-px.
+const JUMP_VEL = -310;
 
 // Run animation frame rate.
 const RUN_FPS = 8;
@@ -93,8 +93,9 @@ export class CatPlayer {
     this._sprite.body.setVelocityY(JUMP_VEL);
     this._state = 'airborne';
 
-    // Freeze the run animation mid-stride while airborne.
-    this._sprite.anims.pause();
+    // Stop the run animation and show the ascent frame immediately.
+    this._sprite.anims.stop();
+    this._sprite.setFrame(2);
   }
 
   // ── Public ────────────────────────────────────────────────────────────────
@@ -107,10 +108,16 @@ export class CatPlayer {
     // Keep the cat pinned horizontally — the world scrolls, not the cat.
     body.setVelocityX(0);
 
-    // ── Landing detection ─────────────────────────────────────────────────
-    if (this._state === 'airborne' && onGround) {
-      this._state = 'running';
-      this._sprite.play('cat-run');
+    // ── Airborne frame arc ────────────────────────────────────────────────
+    // Frame 2 = ascent (velocity going up), frame 3 = descent (velocity going down).
+    if (this._state === 'airborne') {
+      this._sprite.setFrame(body.velocity.y < 0 ? 2 : 3);
+
+      // Landing detection.
+      if (onGround) {
+        this._state = 'running';
+        this._sprite.play('cat-run');
+      }
     }
 
     // ── Jump input ────────────────────────────────────────────────────────
