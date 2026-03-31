@@ -50,7 +50,7 @@ export default class GameScene extends Phaser.Scene {
     // ── Player ────────────────────────────────────────────────────────────
     // CatPlayer adds itself to the scene and attaches its own collider with
     // the platform StaticGroup; no further wiring needed here.
-    this._cat = new CatPlayer(this, this._platforms.group);
+    this._cat = new CatPlayer(this, this._platforms.group, this._platforms.surfaceY);
 
     // ── Day / night cycle ─────────────────────────────────────────────────
     this._CYCLE_DURATION_MS = 80_000; // 80 s total (40 s night + 40 s day)
