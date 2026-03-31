@@ -162,7 +162,13 @@ export class PlatformManager {
     const tile = this.scene.add.image(screenX, PLATFORM_Y, key);
     tile.setOrigin(0, 0);
     tile.setScale(TILE_SCALE);
-    tile.setCrop(0, CROP_TOP, 256, CROP_H);
+
+    // roof_middle has wider frame elements on the edges that protrude.
+    // Crop 16 px from each side (32 total) to trim the bulge and match left/right.
+    const cropX = key === "roof_middle" ? 16 : 0;
+    const cropW = key === "roof_middle" ? 224 : 256;
+    tile.setCrop(cropX, CROP_TOP, cropW, CROP_H);
+
     tile.setDepth(10);
 
     tile._worldX = screenX + px;
