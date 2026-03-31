@@ -18,13 +18,14 @@ const CROP_H   = 128 - CROP_TOP; // 37 rows
 // SURFACE_Y  : world Y of the walkable surface (where the cat's feet land).
 //              = PLATFORM_Y + CROP_TOP * TILE_SCALE  (rounded)
 //
-// We choose PLATFORM_Y so the tile bottom fills to the canvas edge (270 px):
-//   PLATFORM_Y + TILE_H = 270  →  PLATFORM_Y = 110
+// PLATFORM_Y: raised 10 px above the canvas-filling position so the cat walks
+// on the highest visible ridge of the tile artwork.
+// Tile bottom = 100 + 160 = 260 (a small dark sliver shows below — acceptable).
 //
-// SURFACE_Y = 110 + round(91 * 1.25) = 110 + 114 = 224
+// SURFACE_Y = 100 + round(91 × 1.25) = 100 + 114 = 214
 // ---------------------------------------------------------------------------
-const PLATFORM_Y = 110;
-const SURFACE_Y  = PLATFORM_Y + Math.round(CROP_TOP * TILE_SCALE); // 224
+const PLATFORM_Y = 100;
+const SURFACE_Y  = PLATFORM_Y + Math.round(CROP_TOP * TILE_SCALE); // 214
 
 // ---------------------------------------------------------------------------
 // Physics ground
@@ -44,7 +45,7 @@ const GROUND_DEPTH = 9;   // just below tiles (depth 10) — still rendered last
 // ---------------------------------------------------------------------------
 const SCROLL_SPEED = 150; // px / s — keep in sync with BackgroundManager
 
-const GAP_CHANCE  = 0.25;
+const GAP_CHANCE  = 0;    // no gaps until jumping is introduced
 const GAP_MIN     = 60;
 const GAP_MAX     = 120;
 const MID_MIN     = 1;
