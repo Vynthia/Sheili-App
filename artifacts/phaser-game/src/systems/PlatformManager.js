@@ -39,10 +39,24 @@ const GROUND_DEPTH = 9; // drawn just below visual tiles (depth 10)
 // ---------------------------------------------------------------------------
 // Scroll / generation constants
 //
-// Gap safety check:
-//   JUMP_VEL = 310, GRAVITY_Y = 900  →  air time = 2×310/900 ≈ 0.689 s
-//   World scroll during jump = SCROLL_SPEED × 0.689 = 150 × 0.689 ≈ 103 px
-//   GAP_MAX = 80 px  →  landing margin ≈ 23 px  (always jumpable)
+// Gap visibility + jumpability constraints:
+//
+//   Cat physics body width ≈ 36 px (body.left ≈ 57.5, body.right ≈ 93.5).
+//   The EFFECTIVE time the cat spends with NO platform body under it is:
+//       effective_gap_time = (gapW − 36) / SCROLL_SPEED
+//
+//   With gapW = 50: effective_time = 14/150 = 0.093 s → fall = 4 px.
+//   The next segment's 8 px body catches the cat automatically — no jump
+//   needed, gap looks and behaves as if rooftops are connected.  BUG.
+//
+//   We need effective_gap_time long enough that the cat falls PAST the
+//   next body's bottom (8 px) before it arrives, forcing a jump:
+//       fall > 8 px  →  gapW > 56 px  (threshold)
+//
+//   GAP_MIN = 80 px  →  effective_time = 0.293 s, fall ≈ 39 px → game-over
+//                        if no jump.  Clearly visible on screen (17 % width).
+//   GAP_MAX = 95 px  →  effective_time = 0.393 s, fall ≈ 69 px → game-over.
+//                        Safe: max jumpable ≈ 103 px (air time 0.689 s).
 // ---------------------------------------------------------------------------
 const SCROLL_SPEED = 150; // px / s — keep in sync with BackgroundManager
 const SPAWN_AHEAD  = 900; // px ahead of right canvas edge to keep spawned
@@ -51,8 +65,8 @@ const MID_MIN = 0; // minimum middle tiles per segment (0 = left+right only)
 const MID_MAX = 2; // maximum middle tiles per segment
 
 const GAP_CHANCE = 0.40; // probability of a gap before each new segment
-const GAP_MIN    = 50;   // minimum gap width (world px)
-const GAP_MAX    = 80;   // maximum gap width — safe ceiling is 103 px
+const GAP_MIN    = 80;   // minimum gap width — forces a real fall if missed
+const GAP_MAX    = 95;   // maximum gap width — safe ceiling is ~103 px
 
 // No gaps for the first N segments: gives the player time to settle in.
 const INITIAL_SAFE_SEGMENTS = 2;
