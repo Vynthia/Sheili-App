@@ -165,8 +165,8 @@ export class PlatformManager {
     
     // roof_middle needs a different crop offset to align visually with left/right.
     // All tiles are 256×128 texture; we crop the bottom 37 rows (brick/ground layer).
-    // roof_middle's structure starts at a slightly higher Y; offset +2 pixels aligns it.
-    const cropY = (key === "roof_middle") ? (CROP_TOP + 2) : CROP_TOP;
+    // roof_middle's structure differs: its roof parapet starts 10 pixels lower in texture space.
+    const cropY = (key === "roof_middle") ? (CROP_TOP + 10) : CROP_TOP;
     tile.setCrop(0, cropY, 256, CROP_H);
     tile.setDepth(10);
 
