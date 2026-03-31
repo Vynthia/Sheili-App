@@ -8,8 +8,8 @@
 // Horizontal pin position (game px).
 const CAT_X = 80;
 
-// Scale: 128 × 128 source → 64 × 64 display.
-const CAT_SCALE = 0.5;
+// Scale: 128 × 128 source → 51 × 51 display (128 × 0.4).
+const CAT_SCALE = 0.4;
 
 // Local gravity (world gravity is 0).
 const GRAVITY_Y = 900;
@@ -37,9 +37,9 @@ export class CatPlayer {
     }
 
     // ── Sprite ────────────────────────────────────────────────────────────
-    // Spawn 1 px above the surface so the body doesn't overlap on frame 0.
-    // Gravity snaps it into contact within the first physics step (invisible).
-    // Origin (0.5, 1): anchor at bottom-centre → sprite.y == feet position.
+    // Origin (0.5, 1): anchor at bottom-centre → sprite.y is the feet Y.
+    // Spawn 1 px above the surface; gravity snaps the body into contact
+    // within the first physics step (imperceptible on screen).
     this._sprite = scene.physics.add.sprite(CAT_X, surfaceY - 1, "cat_run");
     this._sprite.setOrigin(0.5, 1);
     this._sprite.setScale(CAT_SCALE);
@@ -54,12 +54,36 @@ export class CatPlayer {
     body.setGravityY(GRAVITY_Y);
     body.setCollideWorldBounds(true);
 
-    // Narrow hitbox centred horizontally, flush to the bottom of the frame.
-    //   body.bottom = sprite.y (feet) because:
-    //   body.y = sprite.y - displayOriginY + offsetY = sprite.y - 64 + 6 = sprite.y - 58
-    //   body.bottom = body.y + 58 = sprite.y ✓
-    body.setSize(40, 58);
-    body.setOffset(12, 6);
+    // Phaser 3.90 DynamicBody update formula (Body.js lines 1060-1061):
+    //   body.x = sprite.x + scaleX × (offsetX − displayOriginX)
+    //   body.y = sprite.y + scaleY × (offsetY − displayOriginY)
+    //
+    // For CAT_SCALE = 0.4, origin (0.5, 1), frame 128 × 128:
+    //   displayOriginX = round(0.5 × 128) = 64   (unscaled frame px)
+    //   displayOriginY = round(1.0 × 128) = 128
+    //
+    // Goal — body.bottom == sprite.y (feet flush to surface):
+    //   body.y + bodyH = sprite.y
+    //   sprite.y + 0.4 × (offsetY − 128) + bodyH = sprite.y
+    //   0.4 × (offsetY − 128) + bodyH = 0
+    //   offsetY = 128 − bodyH / 0.4 = 128 − 2.5 × bodyH
+    //
+    //   bodyH = 46  →  offsetY = 128 − 115 = 13  ✓
+    //
+    // Goal — body horizontally centred on sprite.x:
+    //   body.x = sprite.x − bodyW / 2
+    //   sprite.x + 0.4 × (offsetX − 64) = sprite.x − bodyW / 2
+    //   offsetX = 64 − bodyW / (2 × 0.4) = 64 − 1.25 × bodyW
+    //
+    //   bodyW = 36  →  offsetX = 64 − 45 = 19  ✓
+    //
+    // Verification:
+    //   body.y    = sprite.y + 0.4 × (13 − 128) = sprite.y − 46
+    //   body.bottom = sprite.y − 46 + 46 = sprite.y  ✓
+    //   body.x    = sprite.x + 0.4 × (19 − 64) = sprite.x − 18
+    //   body.right  = sprite.x − 18 + 36       = sprite.x + 18  (centred)  ✓
+    body.setSize(36, 46);
+    body.setOffset(19, 13);
 
     // ── Collider ──────────────────────────────────────────────────────────
     scene.physics.add.collider(this._sprite, platformGroup);

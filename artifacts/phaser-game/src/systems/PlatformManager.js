@@ -3,9 +3,9 @@ import Phaser from "phaser";
 // ---------------------------------------------------------------------------
 // Tile visual constants
 // ---------------------------------------------------------------------------
-const TILE_SCALE = 1.25;
-const TILE_W     = Math.round(256 * TILE_SCALE); // 320 px
-const TILE_H     = Math.round(128 * TILE_SCALE); // 160 px
+const TILE_SCALE = 2.00;
+const TILE_W     = Math.round(256 * TILE_SCALE); // 512 px
+const TILE_H     = Math.round(128 * TILE_SCALE); // 256 px
 
 // Crop (texture-space pixels) — show only the brick rows, identical across all tiles.
 const CROP_TOP = 91;
@@ -14,18 +14,17 @@ const CROP_H   = 128 - CROP_TOP; // 37 rows
 // ---------------------------------------------------------------------------
 // Platform layout
 //
-// PLATFORM_Y : sprite origin Y of each tile.
+// PLATFORM_Y : sprite origin Y (top-left, origin 0,0) of each tile.
 // SURFACE_Y  : world Y of the walkable surface (where the cat's feet land).
-//              = PLATFORM_Y + CROP_TOP * TILE_SCALE  (rounded)
+//              = PLATFORM_Y + CROP_TOP × TILE_SCALE  (rounded)
 //
-// PLATFORM_Y: raised 10 px above the canvas-filling position so the cat walks
-// on the highest visible ridge of the tile artwork.
-// Tile bottom = 100 + 160 = 260 (a small dark sliver shows below — acceptable).
+// We choose PLATFORM_Y so the tile bottom fills to the canvas edge (270 px):
+//   PLATFORM_Y + TILE_H ≈ 270  →  PLATFORM_Y = 13  (13 + 256 = 269)
 //
-// SURFACE_Y = 100 + round(91 × 1.25) = 100 + 114 = 214
+// SURFACE_Y = 13 + round(91 × 2) = 13 + 182 = 195
 // ---------------------------------------------------------------------------
-const PLATFORM_Y = 100;
-const SURFACE_Y  = PLATFORM_Y + Math.round(CROP_TOP * TILE_SCALE); // 214
+const PLATFORM_Y = 13;
+const SURFACE_Y  = PLATFORM_Y + Math.round(CROP_TOP * TILE_SCALE); // 195
 
 // ---------------------------------------------------------------------------
 // Physics ground
@@ -34,18 +33,17 @@ const SURFACE_Y  = PLATFORM_Y + Math.round(CROP_TOP * TILE_SCALE); // 214
 // setCrop + setScale in Phaser 3.90 corrupts the StaticBody offset formula
 // inside refreshBody(), making the collision surface end up at the wrong Y.
 //
-// Instead we create ONE invisible static image that spans the full canvas width
-// and sits exactly at SURFACE_Y.  The cat collides with that single body.
-// Gaps will be handled here when jumping is introduced.
+// Instead we create ONE invisible static image whose body is pinned explicitly
+// at SURFACE_Y via body.reset().  The cat collides with that single body.
 // ---------------------------------------------------------------------------
-const GROUND_DEPTH = 9;   // just below tiles (depth 10) — still rendered last
+const GROUND_DEPTH = 9; // just below visual tiles (depth 10)
 
 // ---------------------------------------------------------------------------
 // Scroll / generation constants
 // ---------------------------------------------------------------------------
 const SCROLL_SPEED = 150; // px / s — keep in sync with BackgroundManager
 
-const GAP_CHANCE  = 0;    // no gaps until jumping is introduced
+const GAP_CHANCE  = 0;  // no gaps until jumping is introduced
 const GAP_MIN     = 60;
 const GAP_MAX     = 120;
 const MID_MIN     = 1;
@@ -60,8 +58,8 @@ export class PlatformManager {
     this.scene = scene;
 
     // ── Visual tiles (no physics) ──────────────────────────────────────────
-    this._tiles         = [];
-    this._scrollOffset  = 0;
+    this._tiles        = [];
+    this._scrollOffset = 0;
 
     const canvasW = scene.scale.width;
     while (this._getRightEdge() < canvasW + SPAWN_AHEAD) {
@@ -69,9 +67,9 @@ export class PlatformManager {
     }
 
     // ── Physics ground ─────────────────────────────────────────────────────
-    // A single invisible StaticBody that covers the full canvas width at the
-    // exact surface Y.  We create it using a 1×1 white pixel texture generated
-    // at runtime so we don't need an extra asset.
+    // A single invisible StaticBody spanning the full canvas width, positioned
+    // exactly at SURFACE_Y.  We use body.reset() to pin the position explicitly
+    // so no scale / displayOrigin arithmetic can disturb it.
     if (!scene.textures.exists("__ground_px")) {
       const gfx = scene.add.graphics();
       gfx.fillStyle(0xffffff, 1);
@@ -80,29 +78,37 @@ export class PlatformManager {
       gfx.destroy();
     }
 
-    // origin(0,0): top-left anchor → body.y = sprite.y = SURFACE_Y exactly.
-    // No display-origin arithmetic can disturb the position.
+    // Create as a standalone static image (origin 0,0 → displayOriginX/Y = 0).
+    // We set the body size directly and pin it with body.reset() rather than
+    // relying on setDisplaySize + refreshBody(), which can misbehave when scale
+    // is very large (e.g. 480×1 → scaleX = 480).
     this._ground = scene.physics.add.staticImage(0, SURFACE_Y, "__ground_px");
     this._ground.setOrigin(0, 0);
-    this._ground.setDisplaySize(canvasW, 4); // 4 px tall so collisions aren't missed
     this._ground.setAlpha(0);
     this._ground.setDepth(GROUND_DEPTH);
-    this._ground.body.setSize(canvasW, 4);
-    this._ground.refreshBody();
 
-    // Keep the physics group surface at the same Y even when tiles scroll.
-    // We expose the staticImage via a single-item staticGroup so GameScene can
-    // register the collider with a single group reference.
+    // Set body to cover the full canvas width at SURFACE_Y.
+    // body.reset(x, y) directly writes position into the broadphase tree —
+    // this is the only safe way to move a StaticBody without refreshBody().
+    this._ground.body.setSize(canvasW, 8); // 8 px tall — tolerant of 1-frame gaps
+    this._ground.body.reset(0, SURFACE_Y);
+
+    // Wrap in a static group so CatPlayer can register a single collider.
     this._group = scene.physics.add.staticGroup();
+    // Use group.add() — the StaticGroup createCallback only calls body.reset()
+    // (position only, not size), so the setSize above is preserved.
     this._group.add(this._ground);
+
+    // Re-pin after the group's createCallback may have called body.reset():
+    this._ground.body.reset(0, SURFACE_Y);
   }
 
   /** The static physics group — attach player collider here. */
   get group() { return this._group; }
 
   /**
-   * The world Y of the walkable brick surface.
-   * CatPlayer uses this to spawn the cat just above the platform.
+   * World Y of the walkable brick surface.
+   * CatPlayer uses this to place the cat exactly on the platform at spawn.
    */
   get surfaceY() { return SURFACE_Y; }
 
@@ -114,7 +120,7 @@ export class PlatformManager {
     this._scrollOffset += SCROLL_SPEED * (delta / 1000);
     const px = Math.round(this._scrollOffset);
 
-    // Scroll visual tiles only.
+    // Scroll visual tiles only (physics ground is fixed).
     for (const tile of this._tiles) {
       tile.x = tile._worldX - px;
     }
