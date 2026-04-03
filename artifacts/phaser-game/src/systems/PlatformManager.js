@@ -31,6 +31,11 @@ const SURFACE_Y  = PLATFORM_Y + Math.round(CROP_TOP * TILE_SCALE); // 195
 // is sized to the segment's full width.  Every frame body.reset(screenX, y)
 // repositions it in the broadphase tree to follow the scroll.
 //
+// IMPORTANT: After moving all static bodies, this._group.refresh() MUST be
+// called once per frame to flush the updated positions into the broadphase
+// spatial hash.  Without this call the collision tree retains stale positions
+// and the cat falls through the (visually correct) platforms.
+//
 // We do NOT attach bodies to the visual tile sprites — setCrop+setScale in
 // Phaser 3.90 corrupts refreshBody(), so visuals and physics are kept separate.
 // ---------------------------------------------------------------------------
@@ -59,10 +64,11 @@ const GROUND_DEPTH = 9; // drawn just below visual tiles (depth 10)
 //                        Safe: max jumpable ≈ 103 px (air time 0.689 s).
 // ---------------------------------------------------------------------------
 const SCROLL_SPEED = 150; // px / s — keep in sync with BackgroundManager
-const SPAWN_AHEAD  = 900; // px ahead of right canvas edge to keep spawned
+const SPAWN_AHEAD  = 1200; // px ahead of right canvas edge to keep spawned
 
-const MID_MIN = 0; // minimum middle tiles per segment (0 = left+right only)
-const MID_MAX = 2; // maximum middle tiles per segment
+// Tile repetition per type: each tile kind repeats 1–4 times per segment.
+const REPEAT_MIN = 1;
+const REPEAT_MAX = 4;
 
 const GAP_CHANCE = 0.40; // probability of a gap before each new segment
 const GAP_MIN    = 80;   // minimum gap width — forces a real fall if missed
@@ -133,7 +139,7 @@ export class PlatformManager {
     for (const seg of this._segments) {
       const screenX = seg.worldX - scrollPx;
 
-      // Reposition physics body in the broadphase tree each frame.
+      // Move the static physics sprite and body to the new screen position.
       seg.ground.x = screenX;
       seg.ground.body.reset(screenX, SURFACE_Y);
 
@@ -142,6 +148,11 @@ export class PlatformManager {
         t.sprite.x = screenX + t.localX;
       }
     }
+
+    // ── Flush all moved static bodies into the broadphase tree ─────────────
+    // Without this call the spatial hash keeps stale positions, causing the
+    // cat to fall through platforms that look correct on screen.
+    this._group.refresh();
 
     // ── Recycle segments scrolled fully off the left edge ──────────────────
     while (this._segments.length > 0) {
@@ -171,17 +182,27 @@ export class PlatformManager {
     if (!isSafe && Math.random() < GAP_CHANCE) {
       const gapW = randInt(GAP_MIN, GAP_MAX);
       this._nextWorldX += gapW; // advance cursor past the gap
-      withLanding = true;       // the segment opens with a landing tile
+      withLanding = true;       // the segment opens with landing tiles
     }
 
     // ── Decide tile sequence ───────────────────────────────────────────────
+    // Order: roof_landing (1–4×, only after gap) → roof_left (1–4×)
+    //        → roof_middle (1–4×) → roof_right (1–4×)
     const tileKeys = [];
-    if (withLanding) tileKeys.push("roof_landing");
-    tileKeys.push("roof_left");
-    for (let i = 0, n = randInt(MID_MIN, MID_MAX); i < n; i++) {
-      tileKeys.push("roof_middle");
+
+    if (withLanding) {
+      const n = randInt(REPEAT_MIN, REPEAT_MAX);
+      for (let i = 0; i < n; i++) tileKeys.push("roof_landing");
     }
-    tileKeys.push("roof_right");
+
+    const leftN = randInt(REPEAT_MIN, REPEAT_MAX);
+    for (let i = 0; i < leftN; i++) tileKeys.push("roof_left");
+
+    const midN = randInt(REPEAT_MIN, REPEAT_MAX);
+    for (let i = 0; i < midN; i++) tileKeys.push("roof_middle");
+
+    const rightN = randInt(REPEAT_MIN, REPEAT_MAX);
+    for (let i = 0; i < rightN; i++) tileKeys.push("roof_right");
 
     const segWorldX = this._nextWorldX;
     const segWidth  = tileKeys.length * TILE_W;
@@ -202,9 +223,6 @@ export class PlatformManager {
     }
 
     // ── Create invisible physics body for this segment ─────────────────────
-    // Origin (0,0) → displayOriginX/Y = 0, so body.reset(x,y) = sprite.x/y.
-    // We pin explicitly with body.reset() after group.add() in case the group
-    // createCallback overwrites the position.
     const screenX = segWorldX - scrollPx;
     const ground  = this.scene.physics.add.staticImage(
       screenX, SURFACE_Y, "__ground_px"
@@ -213,8 +231,8 @@ export class PlatformManager {
     ground.setAlpha(0);
     ground.setDepth(GROUND_DEPTH);
     ground.body.setSize(segWidth, 8); // 8 px tall — tolerant of 1-frame timing gaps
-    this._group.add(ground);          // createCallback resets position to sprite.x/y ✓
-    ground.body.reset(screenX, SURFACE_Y); // re-pin after createCallback
+    this._group.add(ground);
+    ground.body.reset(screenX, SURFACE_Y);
 
     // ── Register segment ───────────────────────────────────────────────────
     this._segments.push({ worldX: segWorldX, width: segWidth, ground, tiles });

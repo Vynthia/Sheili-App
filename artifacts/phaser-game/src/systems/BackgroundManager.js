@@ -168,7 +168,7 @@ export class BackgroundManager {
       .setDepth(4);
 
     // 6. roofs_back — foreground rooftop layer.
-    const ROOFS_SHIFT_Y = -25; // vertical offset added on top of layerY
+    const ROOFS_SHIFT_Y = 10; // vertical offset added on top of layerY
 
     this._roofsBack0 = this.scene.add
       .image(0, layerY + ROOFS_SHIFT_Y, "roofs_back")
