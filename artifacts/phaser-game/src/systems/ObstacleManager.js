@@ -78,8 +78,10 @@ const BIRD_FLY_Y = 100;
 const BIRD_FLY_SPEED = 80;
 
 // Collision hitbox for the flying bird (display px, centred on BIRD_FLY_Y).
+// BIRD_FLY_Y = 100.  Cat peak catTop ≈ 102 — hitH 50 → bird Y range [75, 125].
+// Overlap at peak: [102, 125] = 23 px.  Cat on ground catTop ≈ 155 > 125 → safe.
 const BIRD_FLY_HIT_W = 38;
-const BIRD_FLY_HIT_H = 24;
+const BIRD_FLY_HIT_H = 50;
 
 // Canvas width — used to detect when the bird exits the right edge.
 const CANVAS_W = 480;
@@ -172,11 +174,18 @@ export class ObstacleManager {
       sprite.setScale(type.scale);
       sprite.setDepth(OBSTACLE_DEPTH);
 
-      // Hitbox: pre-computed once at spawn; Y measured up from SURFACE_Y.
+      // Hitbox — Y: measured up from SURFACE_Y (small hitH for jumpability).
       const obsTop    = SURFACE_Y - type.hitH;
       const obsBottom = SURFACE_Y;
 
-      this._obstacles.push({ worldX, sprite, hitW: type.hitW, obsTop, obsBottom });
+      // Hitbox — X: anchored to the sprite's left visual edge so collision fires
+      // the instant the obstacle's front pixel meets the cat, not after partial
+      // overlap.  obsLeftOffset = -(half display width), stored relative to screenX.
+      const halfDisplayW   = Math.round(128 * type.scale / 2);
+      const obsLeftOffset  = -halfDisplayW;          // = left visual edge
+      const obsRightOffset = obsLeftOffset + type.hitW; // = narrow window rightward
+
+      this._obstacles.push({ worldX, sprite, obsLeftOffset, obsRightOffset, obsTop, obsBottom });
       this._lastWorldX = worldX;
       placed++;
     }
@@ -212,8 +221,10 @@ export class ObstacleManager {
       const screenX = obs.worldX - scrollPx;
       obs.sprite.x  = screenX;
 
-      const obsLeft  = screenX - obs.hitW / 2;
-      const obsRight = screenX + obs.hitW / 2;
+      // obsLeftOffset is anchored at the sprite's left visual edge, so collision
+      // fires the instant the leading visible pixel reaches the cat's right edge.
+      const obsLeft  = screenX + obs.obsLeftOffset;
+      const obsRight = screenX + obs.obsRightOffset;
 
       if (
         catLeft   < obsRight      &&
@@ -228,7 +239,7 @@ export class ObstacleManager {
     // Recycle obstacles that have fully scrolled off the left edge.
     while (this._obstacles.length > 0) {
       const obs = this._obstacles[0];
-      if (obs.worldX - scrollPx + obs.hitW / 2 < 0) {
+      if (obs.worldX - scrollPx + obs.obsRightOffset < 0) {
         obs.sprite.destroy();
         this._obstacles.shift();
       } else {
