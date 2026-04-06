@@ -8,11 +8,21 @@
 //
 // Jump clearance budget:
 //   JUMP_VEL = -310, GRAVITY_Y = 900
-//   Peak rise = 310² / (2 × 900) ≈ 53 px above rest position
-//   catBodyBottom on ground = SURFACE_Y (body rests on platform)
-//   catBodyBottom at peak   = SURFACE_Y − 53 = 142
-//   → hitH ≤ 53 guarantees the cat can jump over; we use hitH ≤ 36 for a
-//     generous 17 px of clearance at the top of the arc.
+//   catBodyBottom on ground = SURFACE_Y = 195
+//   catSprite.y on ground   = SURFACE_Y − 52 = 143
+//   Jump arc: catSprite.y(τ) = 143 − 310τ + 450τ²
+//
+//   For the cat to fully clear an obstacle with ANY well-timed jump, the
+//   "Y-clear window" (time the cat is above obsTop) must be LONGER than the
+//   "X-overlap window" (time the obstacle's X hitbox crosses the cat's X):
+//     Y-clear window  = 2·√(96100 − 1800·hitH) / 900  seconds
+//     X-overlap window = (catBodyW + hitW) / SCROLL_SPEED  seconds
+//                      = (36 + hitW) / 150
+//   Solving: hitH < (96100 − 9·(36+hitW)²) / 1800
+//     chimney  hitW=26 → hitH < 34  → use 20
+//     antenna  hitW=10 → hitH < 43  → use 30 ✓
+//     vent     hitW=32 → hitH < 30  → use 18
+//     bird     hitW=38 → hitH < 27  → use 16
 //
 // ── Flying bird (bird_fly) ─────────────────────────────────────────────────
 // Completely independent of the segment-spawning system.  The bird enters
@@ -36,13 +46,13 @@ const OBSTACLE_DEPTH = 20;
 //            Change per-type to resize an obstacle independently.
 // `hitW`   — collision box half-width (display px); narrower = more forgiving.
 // `hitH`   — collision box height (display px, measured up from SURFACE_Y).
-//            Must be ≤ 53 so the cat can always jump over.
+//            See clearance formula in the header — value depends on hitW.
 // ---------------------------------------------------------------------------
 const OBSTACLE_TYPES = [
-  { key: "chimney", scale: 0.7,  hitW: 26, hitH: 36 },
-  { key: "antenna", scale: 0.45, hitW: 10, hitH: 36 },
-  { key: "vent",    scale: 0.6,  hitW: 32, hitH: 22 },
-  { key: "bird",    scale: 0.4,  hitW: 40, hitH: 30 },
+  { key: "chimney", scale: 0.7,  hitW: 26, hitH: 20 },
+  { key: "antenna", scale: 0.45, hitW: 10, hitH: 30 },
+  { key: "vent",    scale: 0.6,  hitW: 32, hitH: 18 },
+  { key: "bird",    scale: 0.4,  hitW: 38, hitH: 16 },
 ];
 
 // Maximum ground obstacles placed per segment.
