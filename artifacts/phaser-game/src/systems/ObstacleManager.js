@@ -202,9 +202,15 @@ export class ObstacleManager {
     // ── Ground obstacles ──────────────────────────────────────────────────
     // Full AABB — no airborne bypass.  The cat must jump OVER the hitbox.
     // hitH=20 ensures catBottom at jump peak (≈142) is well above obsTop (175).
+    // Dynamic depth: if cat is jumping (catBottom < SURFACE_Y), render obstacles
+    // in front (depth 20); otherwise behind (depth 10) so cat appears to run over.
+    const catIsAirborne = catBottom < SURFACE_Y;
+    const dynamicDepth = catIsAirborne ? 20 : 10;
+
     for (const obs of this._obstacles) {
       const screenX = obs.worldX - scrollPx;
       obs.sprite.x  = screenX;
+      obs.sprite.setDepth(dynamicDepth);
 
       const obsLeft  = screenX - obs.hitW / 2;
       const obsRight = screenX + obs.hitW / 2;
