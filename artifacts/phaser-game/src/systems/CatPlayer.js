@@ -90,7 +90,7 @@ export class CatPlayer {
     this._sprite = scene.physics.add.sprite(CAT_X, surfaceY - 1, "cat_run");
     this._sprite.setOrigin(0.5, 1);
     this._sprite.setScale(CAT_SCALE);
-    this._sprite.setDepth(30); // always in front of obstacles (depth 20)
+    this._sprite.setDepth(20); // renders behind obstacles (depth 30)
     this._sprite.setFlipX(false);
     this._sprite.setFrame(3); // descent frame while dropping to the surface
 

@@ -26,8 +26,8 @@ const SCROLL_SPEED = 150; // px/s — must match PlatformManager
 const TILE_W       = 512; // px  — must match PlatformManager
 const SURFACE_Y    = 195; // px  — visual ground Y for obstacle sprites
 
-// Depth for ALL ground obstacles (cat depth = 30 → cat always in front).
-const OBSTACLE_DEPTH = 20;
+// Depth for ALL ground obstacles (cat depth = 20 → cat always behind obstacles).
+const OBSTACLE_DEPTH = 30;
 
 // ---------------------------------------------------------------------------
 // Ground obstacle type definitions.
