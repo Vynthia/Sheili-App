@@ -3,28 +3,27 @@
 // independent flying bird that crosses the canvas from left to right.
 //
 // ── Ground obstacle collision ──────────────────────────────────────────────
-// Uses "single pinned body" AABB: the cat is always at CAT_SCREEN_X.
-// Each frame we check every obstacle's hitbox against the cat's body rect.
+// Uses AABB in screen-space.  The cat body rect is fixed at CAT_SCREEN_X.
 //
-// Jump clearance — two-part design:
+// Jump clearance maths (GRAVITY_Y=900, JUMP_VEL=-310):
+//   catBottom at peak ≈ 142 px  (cat.sprite.y ≈ 90, CAT_BODY_BOTTOM_OFFSET=52)
+//   SURFACE_Y = 195 px
+//   Max safe hitH = SURFACE_Y − 142 = 53 px
 //
-//   1. AIRBORNE BYPASS: ground-obstacle Y-collision is SKIPPED entirely while
-//      the cat is airborne (catBottom < SURFACE_Y − 3).  Any jump clears any
-//      ground obstacle regardless of height.  The cat can only be killed by a
-//      ground obstacle while running on the surface.
+//   We use hitH=20, giving a Y-clear window of ≈545 ms.
+//   X-overlap depends on hitW: duration = (catBodyWidth + hitW) / SCROLL_SPEED
+//   At hitW=28: timing window ≈ 119 ms — comfortable for a player to jump early.
 //
-//   2. SMALL hitH: obsTop is kept close to SURFACE_Y so it only detects the
-//      cat walking directly into the base of the object (not while jumping).
-//      hitH = 5–8 px means the cat clears the hitbox after ~1 physics frame.
-//
-//   Flying bird (bird_fly) ignores the airborne bypass — jumping INTO it kills.
+//   NO airborne bypass: the cat must actually jump OVER the obstacle's hitbox.
+//   Running directly into it while on the ground also kills.
 //
 // ── Flying bird (bird_fly) ─────────────────────────────────────────────────
 // Completely independent of the segment-spawning system.  The bird enters
 // from the left edge, flies straight right at BIRD_FLY_SPEED px/s, and
 // disappears off the right edge.  After a random delay it reappears.
-// The cat must NOT jump while the bird is passing overhead — any jump that
-// intersects the bird's hitbox triggers a restart.
+// The bird will NOT spawn while any ground obstacle is visible on screen —
+// it only enters on a clear runway so the player is never forced into an
+// impossible choice between the ground obstacle and the aerial hazard.
 // ---------------------------------------------------------------------------
 
 const SCROLL_SPEED = 150; // px/s — must match PlatformManager
@@ -38,16 +37,17 @@ const OBSTACLE_DEPTH = 20;
 // Ground obstacle type definitions.
 //
 // `scale`  — individual display scale (source sprites are 128×128).
-//            Change per-type to resize an obstacle independently.
-// `hitW`   — collision box half-width (display px); narrower = more forgiving.
-// `hitH`   — collision box height (display px, measured up from SURFACE_Y).
-//            See clearance formula in the header — value depends on hitW.
+// `hitW`   — collision box total width (display px, centred on sprite X).
+//            Narrower = more forgiving horizontally.
+// `hitH`   — collision box height (display px, measured UP from SURFACE_Y).
+//            Must be < 53 so the cat can clear it at jump peak.
+//            hitH=20 gives a ≈172–212 ms timing window depending on hitW.
 // ---------------------------------------------------------------------------
 const OBSTACLE_TYPES = [
-  { key: "chimney", scale: 0.7,  hitW: 14, hitH: 6 },
-  { key: "antenna", scale: 0.45, hitW: 8,  hitH: 8 },
-  { key: "vent",    scale: 0.6,  hitW: 12, hitH: 6 },
-  { key: "bird",    scale: 0.4,  hitW: 10, hitH: 6 },
+  { key: "chimney", scale: 0.7,  hitW: 28, hitH: 20 },
+  { key: "antenna", scale: 0.45, hitW: 14, hitH: 20 },
+  { key: "vent",    scale: 0.6,  hitW: 26, hitH: 20 },
+  { key: "bird",    scale: 0.4,  hitW: 20, hitH: 20 },
 ];
 
 // Maximum ground obstacles placed per segment.
@@ -84,6 +84,9 @@ const CANVAS_W = 480;
 // Random gap between one crossing and the next (milliseconds).
 const BIRD_FLY_MIN_DELAY = 4000;
 const BIRD_FLY_MAX_DELAY = 10000;
+
+// If an obstacle is on screen when the timer expires, retry after this delay.
+const BIRD_RETRY_DELAY = 800; // ms
 
 // ---------------------------------------------------------------------------
 // Cat body offsets (used for both ground and flying-bird collision).
@@ -166,6 +169,7 @@ export class ObstacleManager {
       sprite.setDepth(OBSTACLE_DEPTH);
 
       // Hitbox vertical bounds, pre-computed once at spawn.
+      // obsTop is measured UP from SURFACE_Y by hitH pixels.
       const obsTop    = SURFACE_Y - type.hitH;
       const obsBottom = SURFACE_Y;
 
@@ -194,12 +198,8 @@ export class ObstacleManager {
     this.collision = false;
 
     // ── Ground obstacles ──────────────────────────────────────────────────
-    // Airborne bypass: skip Y-collision while the cat is in the air.
-    // Any jump clears any ground obstacle — the cat can only be killed by
-    // running directly into the base while standing firmly on the surface.
-    // catBottom must be AT the surface (within 1px tolerance) to be "on ground".
-    const catOnGround = catBottom >= SURFACE_Y - 1;
-
+    // Full AABB — no airborne bypass.  The cat must jump OVER the hitbox.
+    // hitH=20 ensures catBottom at jump peak (≈142) is well above obsTop (175).
     for (const obs of this._obstacles) {
       const screenX = obs.worldX - scrollPx;
       obs.sprite.x  = screenX;
@@ -208,9 +208,8 @@ export class ObstacleManager {
       const obsRight = screenX + obs.hitW / 2;
 
       if (
-        catOnGround           &&
-        catLeft   < obsRight  &&
-        catRight  > obsLeft   &&
+        catLeft   < obsRight      &&
+        catRight  > obsLeft       &&
         catTop    < obs.obsBottom &&
         catBottom > obs.obsTop
       ) {
@@ -230,7 +229,7 @@ export class ObstacleManager {
     }
 
     // ── Flying bird ───────────────────────────────────────────────────────
-    this._updateFlyingBird(delta, catLeft, catRight, catTop, catBottom);
+    this._updateFlyingBird(delta, scrollPx, catLeft, catRight, catTop, catBottom);
   }
 
   /** Destroy all managed objects (call before scene.restart()). */
@@ -249,8 +248,11 @@ export class ObstacleManager {
   /**
    * Manages the independent flying bird lifecycle:
    *   waiting → spawns from left → flies right → exits right → waiting …
+   *
+   * The bird will NOT spawn while any ground obstacle is visible on screen,
+   * preventing impossible simultaneous hazards.
    */
-  _updateFlyingBird(delta, catLeft, catRight, catTop, catBottom) {
+  _updateFlyingBird(delta, scrollPx, catLeft, catRight, catTop, catBottom) {
     if (this._flySprite) {
       // Bird is in flight — move it to the right.
       this._flyX       += BIRD_FLY_SPEED * (delta / 1000);
@@ -279,8 +281,22 @@ export class ObstacleManager {
       // Waiting — count down until the next crossing.
       this._flyTimer -= delta;
       if (this._flyTimer <= 0) {
+        // Do not spawn while any ground obstacle is visible on screen.
+        // This guarantees the player is never forced to dodge both simultaneously.
+        const hasObstacleOnScreen = this._obstacles.some(obs => {
+          const screenX = obs.worldX - scrollPx;
+          return screenX > -obs.hitW && screenX < CANVAS_W + obs.hitW;
+        });
+
+        if (hasObstacleOnScreen) {
+          // Runway is not clear — retry soon.
+          this._flyTimer = BIRD_RETRY_DELAY;
+          return;
+        }
+
+        // Runway is clear — spawn the bird just off the left edge.
         const halfDisplayW = (128 * BIRD_FLY_SCALE) / 2;
-        this._flyX = -halfDisplayW; // start just off the left edge
+        this._flyX = -halfDisplayW;
 
         this._flySprite = this._scene.add.sprite(
           this._flyX, BIRD_FLY_Y, "bird_fly"
