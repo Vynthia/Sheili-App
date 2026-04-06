@@ -59,6 +59,18 @@ Plain JS Phaser 3 browser game — no React, no UI framework. Served via Vite.
 - Canvas size: 480 × 270 (change `GAME_WIDTH` / `GAME_HEIGHT` in `main.js`)
 - Assets: `public/assets/bg/` (backgrounds), `public/assets/` (sprites)
 
+### ObstacleManager (`src/systems/ObstacleManager.js`)
+
+Spawns and scrolls rooftop obstacles (chimney, antenna, vent, skylight) on valid platform surfaces.
+
+- Callback-driven: PlatformManager calls `onSegmentSpawned(seg)` for each new segment; ObstacleManager places 0–2 obstacles in the safe interior (skips first and last tile of segment to avoid gap edges and landing zones).
+- No physics bodies: collision is pure AABB in screen-space each frame inside `update(delta, catSprite)`.
+- `this.collision` is set `true` when the cat's physics hitbox overlaps any obstacle; GameScene reads this flag and calls `scene.restart()`.
+- Jump-clearance guarantee: all obstacle hitboxes have `hitH ≤ 44 px`, so the cat's body clears them at jump peak (body.bottom ≈ 142, obstacle.top ≥ 151).
+- Minimum spacing `MIN_SPACING = TILE_W (512 px)` between consecutive obstacles — ensures fair reaction time.
+- Grace period of 1500 ms after scene start before collision checks begin (prevents instant death on restart).
+- Assets: `public/assets/obstacles/` — all 128×128 source, displayed at scale 0.35.
+
 ### BackgroundManager (`src/systems/BackgroundManager.js`)
 
 6-layer parallax city-rooftop background system:

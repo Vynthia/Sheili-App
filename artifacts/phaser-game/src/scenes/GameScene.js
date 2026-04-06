@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { BackgroundManager } from "../systems/BackgroundManager.js";
 import { PlatformManager }   from "../systems/PlatformManager.js";
 import { CatPlayer }         from "../systems/CatPlayer.js";
+import { ObstacleManager }   from "../systems/ObstacleManager.js";
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -26,10 +27,14 @@ export default class GameScene extends Phaser.Scene {
     this.load.image("roof_right",   "assets/platform/roof_right.png");
     this.load.image("roof_landing", "assets/platform/roof_landing.png");
 
+    // ── Rooftop obstacles ──────────────────────────────────────────────
+    this.load.image("chimney",  "assets/obstacles/chimney.png");
+    this.load.image("antenna",  "assets/obstacles/antenna.png");
+    this.load.image("vent",     "assets/obstacles/vent.png");
+    this.load.image("skylight", "assets/obstacles/skylight.png");
+
     // ── Cat ────────────────────────────────────────────────────────────
-    // cat_start is a single 128 × 128 idle pose.
     this.load.image("cat_start", "assets/cat/cat_start.png");
-    // cat_run is a 512 × 128 horizontal spritesheet — 4 frames of 128 × 128.
     this.load.spritesheet("cat_run", "assets/cat/cat_run.png", {
       frameWidth:  128,
       frameHeight: 128,
@@ -37,8 +42,6 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // Disable the default black camera background so the gradient layer
-    // is the only sky colour source.
     this.cameras.main.setBackgroundColor(0x000000);
 
     // ── Background ────────────────────────────────────────────────────────
@@ -47,30 +50,56 @@ export default class GameScene extends Phaser.Scene {
     // ── Platforms ─────────────────────────────────────────────────────────
     this._platforms = new PlatformManager(this);
 
+    // ── Obstacles ─────────────────────────────────────────────────────────
+    this._obstacles = new ObstacleManager(this);
+
+    // Wire PlatformManager → ObstacleManager so each new segment can spawn
+    // obstacles.  The callback is set AFTER construction so the initial
+    // seed segments (spawned inside PlatformManager's constructor) are
+    // obstacle-free — giving the cat a clear landing runway.
+    this._platforms.onSegmentSpawned = (seg) => {
+      this._obstacles.onSegmentSpawned(seg);
+    };
+
     // ── Player ────────────────────────────────────────────────────────────
-    // CatPlayer adds itself to the scene and attaches its own collider with
-    // the platform StaticGroup; no further wiring needed here.
     this._cat = new CatPlayer(this, this._platforms.group, this._platforms.surfaceY);
 
     // ── Day / night cycle ─────────────────────────────────────────────────
-    this._CYCLE_DURATION_MS = 80_000; // 80 s total (40 s night + 40 s day)
+    this._CYCLE_DURATION_MS = 80_000;
     this._cycleElapsed = 0;
     this._bg.setCycleProgress(0);
+
+    // ── Collision cooldown ────────────────────────────────────────────────
+    // Brief grace period after a scene restart so the cat isn't immediately
+    // killed by an obstacle that spawns at its position.
+    this._collisionGrace = 1500; // ms — no collision checks for first 1.5 s
   }
 
   update(_time, delta) {
-    // Advance the cycle clock.
+    // ── Day / night cycle ─────────────────────────────────────────────────
     this._cycleElapsed += delta;
     const cycleProgress =
       (this._cycleElapsed % this._CYCLE_DURATION_MS) / this._CYCLE_DURATION_MS;
-
     this._bg.setCycleProgress(cycleProgress);
     this._bg.update(delta);
 
-    // Scroll platforms and manage tile recycling.
+    // ── Platforms ─────────────────────────────────────────────────────────
     this._platforms.update(delta);
 
-    // Update the player (pin x, watch for landing, drive state machine).
+    // ── Obstacles ─────────────────────────────────────────────────────────
+    this._obstacles.update(delta, this._cat.sprite);
+
+    // ── Player ────────────────────────────────────────────────────────────
     this._cat.update(delta);
+
+    // ── Collision detection ────────────────────────────────────────────────
+    // Tick down the grace period; only check collisions once it expires.
+    if (this._collisionGrace > 0) {
+      this._collisionGrace -= delta;
+    } else if (this._obstacles.collision) {
+      // Cat hit an obstacle — clean up and restart the scene.
+      this._obstacles.destroy();
+      this.scene.restart();
+    }
   }
 }

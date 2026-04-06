@@ -102,6 +102,11 @@ export class PlatformManager {
     //   { worldX, width, tiles: [{sprite, localX}, ...] }
     this._segments = [];
 
+    // Optional callback — set by GameScene so ObstacleManager can react to
+    // each newly spawned segment.  Signature: (seg) => void
+    // where seg = { worldX, width, withLanding }.
+    this.onSegmentSpawned = null;
+
     // ── Shared 1×1 white texture for the floor body ────────────────────────
     if (!scene.textures.exists("__ground_px")) {
       const gfx = scene.add.graphics();
@@ -249,6 +254,11 @@ export class PlatformManager {
     this._segments.push({ worldX: segWorldX, width: segWidth, tiles });
     this._nextWorldX += segWidth;
     this._segmentsSpawned++;
+
+    // Notify ObstacleManager (or any other listener) about this new segment.
+    if (this.onSegmentSpawned) {
+      this.onSegmentSpawned({ worldX: segWorldX, width: segWidth, withLanding });
+    }
   }
 
   _destroySegment(seg) {
