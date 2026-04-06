@@ -71,7 +71,7 @@ Spawns and scrolls rooftop obstacles (chimney, antenna, vent, skylight) on valid
 - Minimum spacing `MIN_SPACING = TILE_W (512 px)` between consecutive obstacles — ensures fair reaction time.
 - Grace period of 1500 ms after scene start before collision checks begin (prevents instant death on restart).
 - Key constants: `SURFACE_Y = 195`, `OBSTACLE_DEPTH = 20`.
-- **Ground obstacle types**: chimney (scale=0.7, hitW=28, hitH=20), antenna (scale=0.45, hitW=14, hitH=20), vent (scale=0.6, hitW=26, hitH=20), bird sitting (scale=0.4, hitW=20, hitH=20).
+- **Ground obstacle types**: chimney (scale=0.7, hitW=90, hitH=20), antenna (scale=0.45, hitW=58, hitH=20), vent (scale=0.6, hitW=77, hitH=20), bird sitting (scale=0.4, hitW=51, hitH=20). hitW matches the visual sprite width (128px source × scale) to prevent passing through the sides.
 - **Flying bird** (`bird_fly`) — NOT spawned via segments. Enters from left edge, flies right at `BIRD_FLY_SPEED=80px/s`, disappears off right, reappears after 4–10 s delay. **Will NOT spawn while any ground obstacle is visible on screen** — runway must be clear to prevent impossible simultaneous hazards. `BIRD_FLY_Y=100`, `setFlipX(false)`. Safe to pass under on ground; any jump into it triggers a restart.
 
 ### BackgroundManager (`src/systems/BackgroundManager.js`)

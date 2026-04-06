@@ -38,16 +38,17 @@ const OBSTACLE_DEPTH = 20;
 //
 // `scale`  — individual display scale (source sprites are 128×128).
 // `hitW`   — collision box total width (display px, centred on sprite X).
-//            Narrower = more forgiving horizontally.
+//            Must match the visual sprite width to prevent passing through sides.
+//            Calculated from: 128px source × scale = display width.
 // `hitH`   — collision box height (display px, measured UP from SURFACE_Y).
 //            Must be < 53 so the cat can clear it at jump peak.
 //            hitH=20 gives a ≈172–212 ms timing window depending on hitW.
 // ---------------------------------------------------------------------------
 const OBSTACLE_TYPES = [
-  { key: "chimney", scale: 0.7,  hitW: 28, hitH: 20 },
-  { key: "antenna", scale: 0.45, hitW: 14, hitH: 20 },
-  { key: "vent",    scale: 0.6,  hitW: 26, hitH: 20 },
-  { key: "bird",    scale: 0.4,  hitW: 20, hitH: 20 },
+  { key: "chimney", scale: 0.7,  hitW: 90, hitH: 20 },
+  { key: "antenna", scale: 0.45, hitW: 58, hitH: 20 },
+  { key: "vent",    scale: 0.6,  hitW: 77, hitH: 20 },
+  { key: "bird",    scale: 0.4,  hitW: 51, hitH: 20 },
 ];
 
 // Maximum ground obstacles placed per segment.
