@@ -15,8 +15,9 @@ const CAT_SCALE = 0.5;
 const GRAVITY_Y = 900;
 
 // Jump impulse applied on take-off (negative = upward).
-// Peak height = JUMP_VEL² / (2 × GRAVITY_Y) ≈ 310² / 1800 ≈ 53 game-px.
-const JUMP_VEL = -310;
+// Peak height = JUMP_VEL² / (2 × GRAVITY_Y) ≈ 380² / 1800 ≈ 80 game-px.
+// Higher arc gives the cat clear visual separation from rooftop obstacles.
+const JUMP_VEL = -380;
 
 // Run animation frame rate.
 const RUN_FPS = 8;

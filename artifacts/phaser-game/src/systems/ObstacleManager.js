@@ -37,20 +37,20 @@ const OBSTACLE_DEPTH = 30;
 //            Calibrated to the solid centre column of each sprite, not the
 //            full frame width, so the cat is only killed on real contact.
 // `hitH`   — collision box total height (display px, measured UP from SURFACE_Y).
-//            Must be < 53 so the cat can clear it at jump apex (catBottom≈142).
+//            Must be < 80 so the cat can clear it at jump apex (catBottom≈115).
 //            Kept small so obsTop is close to the ground — generous clearance.
 //
-// Timing windows (catBody ≈ 28 px wide, SCROLL_SPEED = 150 px/s):
-//   chimney  hitW=16 hitH=12  obsTop=183  Y-clear=607ms  X-overlap=293ms  → 314ms
-//   antenna  hitW= 8 hitH=15  obsTop=180  Y-clear=584ms  X-overlap=240ms  → 344ms
-//   vent     hitW=18 hitH=12  obsTop=183  Y-clear=607ms  X-overlap=307ms  → 300ms
-//   bird     hitW=22 hitH=22  obsTop=173  Y-clear=528ms  X-overlap=333ms  → 195ms
+// Timing windows (catBody ≈ 28 px wide, SCROLL_SPEED = 150 px/s, JUMP_VEL = -380):
+//   chimney  scale=0.5 hitW=16 hitH=12  obsTop=183  Y-clear=778ms  X-overlap=293ms  → 485ms
+//   antenna  scale=0.4 hitW= 8 hitH=15  obsTop=180  Y-clear=762ms  X-overlap=240ms  → 522ms
+//   vent     scale=0.5 hitW=18 hitH=12  obsTop=183  Y-clear=778ms  X-overlap=307ms  → 471ms
+//   bird     scale=0.3 hitW=22 hitH=22  obsTop=173  Y-clear=719ms  X-overlap=333ms  → 386ms
 // ---------------------------------------------------------------------------
 const OBSTACLE_TYPES = [
-  { key: "chimney", scale: 0.7,  hitW: 16, hitH: 12 }, // 314 ms timing window
-  { key: "antenna", scale: 0.45, hitW:  8, hitH: 15 }, // 344 ms timing window
-  { key: "vent",    scale: 0.6,  hitW: 18, hitH: 12 }, // 300 ms timing window
-  { key: "bird",    scale: 0.3,  hitW: 22, hitH: 22 }, // 195 ms timing window
+  { key: "chimney", scale: 0.5,  hitW: 16, hitH: 12 }, // 485 ms timing window
+  { key: "antenna", scale: 0.4,  hitW:  8, hitH: 15 }, // 522 ms timing window
+  { key: "vent",    scale: 0.5,  hitW: 18, hitH: 12 }, // 471 ms timing window
+  { key: "bird",    scale: 0.3,  hitW: 22, hitH: 22 }, // 386 ms timing window
 ];
 
 // Maximum ground obstacles placed per segment.
@@ -293,9 +293,12 @@ export class ObstacleManager {
       this._flyTimer -= delta;
       if (this._flyTimer <= 0) {
         // Only spawn when no ground obstacle is visible on screen.
+        // Use sprite.displayWidth for the visual bounds — obs.hitW was removed
+        // when the hitbox was refactored to obsLeftOffset / obsRightOffset.
         const hasObstacleOnScreen = this._obstacles.some(obs => {
-          const sx = obs.worldX - scrollPx;
-          return sx + obs.hitW / 2 > 0 && sx - obs.hitW / 2 < CANVAS_W;
+          const sx      = obs.worldX - scrollPx;
+          const halfW   = obs.sprite.displayWidth / 2;
+          return sx + halfW > 0 && sx - halfW < CANVAS_W;
         });
 
         if (hasObstacleOnScreen) {
