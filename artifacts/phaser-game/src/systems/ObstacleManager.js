@@ -7,7 +7,7 @@
 // physics-body bounding box in screen space.  If an overlap is detected the
 // manager sets its `collision` flag so GameScene can act (e.g. restart).
 //
-// Jump clearance maths (SURFACE_Y here = 220 for obstacle visuals):
+// Jump clearance maths:
 //   JUMP_VEL = -310, GRAVITY_Y = 900
 //   Peak height above ground = 310² / (2 × 900) ≈ 53 px
 //   PlatformManager surfaceY = 195 → cat sprite.y on ground ≈ 195
@@ -17,27 +17,18 @@
 //   catBodyTop on ground  = 195 + 6  = 201
 //
 // Ground obstacles: hitH ≤ 36 so the cat can jump over them.
-// Airborne obstacles (bird_fly): positioned so obsBottom < 201 (safe on
-//   ground) and obsBottom > 148 (fatal during jump).
+// Airborne obstacles (bird_fly): BIRD_FLY_Y=100, hitH=30
+//   obsTop=85, obsBottom=115 → safe on ground (catTop=201 > 115),
+//   fatal during jump (catTop=148 > 115 — just above; adjust BIRD_FLY_Y if needed).
 // ---------------------------------------------------------------------------
 
 const SCROLL_SPEED = 150; // px/s — must match PlatformManager
 const TILE_W       = 512; // px  — must match PlatformManager
-const SURFACE_Y    = 220; // px  — visual ground Y for obstacle sprites
-
-// Visual scale for ground obstacle sprites (source 128×128).
-// 128 × 0.8 = 102 px display.
-const OBSTACLE_SCALE = 0.8;
-
-// Scale for the airborne bird_fly sprite (source 128×128 per frame).
-// 128 × 0.5 = 64 px display — a natural size for a bird in flight.
-const BIRD_FLY_SCALE = 0.5;
+const SURFACE_Y    = 195; // px  — visual ground Y for obstacle sprites
 
 // Y centre of the flying bird in screen space.
-// Must satisfy: obsBottom < 201 (won't hit cat on ground)
-//               obsTop    < 194 (will hit cat at jump peak)
-// airY=165, hitH=30 → obsTop=150, obsBottom=180.  Fits both constraints.
-const BIRD_FLY_Y = 165;
+// Increase to move the bird lower (easier); decrease to move it higher.
+const BIRD_FLY_Y = 100;
 
 // Obstacles must render IN FRONT of the cat (cat depth = 15).
 const OBSTACLE_DEPTH = 20;
@@ -45,20 +36,23 @@ const OBSTACLE_DEPTH = 20;
 // ---------------------------------------------------------------------------
 // Obstacle type definitions.
 //
+// Each entry has an individual `scale` so each type can be tuned
+// independently.  To adjust a specific obstacle's size, change its scale here.
+//
 // Ground types (airborne: false):
 //   hitW / hitH are the collision box in display pixels.
 //   obsBottom = SURFACE_Y, obsTop = SURFACE_Y − hitH.
 //
 // Airborne types (airborne: true):
-//   hitbox is centred on airY in screen space.
-//   obsTop = airY − hitH/2, obsBottom = airY + hitH/2.
+//   hitbox is centred on BIRD_FLY_Y in screen space.
+//   obsTop = BIRD_FLY_Y − hitH/2, obsBottom = BIRD_FLY_Y + hitH/2.
 // ---------------------------------------------------------------------------
 const OBSTACLE_TYPES = [
-  { key: "chimney",  hitW: 26, hitH: 36, airborne: false },
-  { key: "antenna",  hitW: 10, hitH: 36, airborne: false },
-  { key: "vent",     hitW: 32, hitH: 22, airborne: false },
-  { key: "bird",     hitW: 40, hitH: 30, airborne: false },
-  { key: "bird_fly", hitW: 50, hitH: 30, airborne: true  },
+  { key: "chimney",  scale: 0.6, hitW: 26, hitH: 36, airborne: false },
+  { key: "antenna",  scale: 0.6, hitW: 10, hitH: 36, airborne: false },
+  { key: "vent",     scale: 0.6, hitW: 32, hitH: 22, airborne: false },
+  { key: "bird",     scale: 0.6, hitW: 40, hitH: 30, airborne: false },
+  { key: "bird_fly", scale: 0.4, hitW: 50, hitH: 30, airborne: true  },
 ];
 
 // Maximum obstacles placed per segment.
@@ -142,13 +136,13 @@ export class ObstacleManager {
         // Animated flying bird — use sprite so animation plays.
         sprite = this._scene.add.sprite(screenX, BIRD_FLY_Y, type.key);
         sprite.setOrigin(0.5, 0.5);
-        sprite.setScale(BIRD_FLY_SCALE);
+        sprite.setScale(type.scale);
         sprite.play("bird_fly");
       } else {
         // Static ground obstacle — plain image, bottom sits on SURFACE_Y.
         sprite = this._scene.add.image(screenX, SURFACE_Y, type.key);
         sprite.setOrigin(0.5, 1);
-        sprite.setScale(OBSTACLE_SCALE);
+        sprite.setScale(type.scale);
       }
 
       sprite.setDepth(OBSTACLE_DEPTH);
