@@ -1,0 +1,62 @@
+You changed too much in the previous update.
+
+The depth fix is correct, but the obstacle system was over-engineered.
+I do NOT want a full architectural rewrite with static physics bodies physically blocking the cat.
+
+Please revert the obstacle logic to a simpler collision-detection approach and keep the depth fix.
+
+Important:
+- Keep the fixed depth values if they already work.
+- Do NOT change sprite positions, Y-alignment, layout, or art style.
+- Do NOT change cat scale, size, or visual placement.
+- Only change collision behavior and bird scaling.
+- Do not perform another architectural rewrite. This is only a collision tuning fix.
+
+Required behavior:
+
+1. Ground obstacles (chimney, vent, antenna):
+- The cat must be able to jump over them if the timing is correct.
+- They should NOT physically block the cat like a wall.
+- They should only trigger a restart when the cat actually touches their visible shape.
+- Replace hard physical blocking collider behavior with accurate hit detection only.
+- Do NOT use oversized generic static body collision boxes.
+
+2. Bird:
+- Keep bird deadly.
+- Any contact with the bird must restart the scene immediately.
+- This includes contact while jumping upward into the bird.
+- Bird must remain non-jumpable.
+- Set the scale of both bird and bird_fly to 0.3 everywhere they are created, initialized, or updated.
+- Make sure no old scale value overrides this later in the code.
+
+3. Collision logic:
+- Do NOT use a physics setup that physically blocks the cat against ground obstacles.
+- Use fair collision detection instead.
+- The cat should pass over chimney, vent, and antenna when visually clearing them.
+- Restart only on real visible contact.
+
+4. Hitboxes:
+- Calibrate hitboxes individually for:
+  - chimney
+  - vent
+  - antenna
+  - bird
+- Do NOT use one generic hitbox rule for all ground obstacles.
+- Do NOT use one fixed 20px-tall bottom hitbox for everything.
+- Match each obstacle’s actual visible solid shape.
+
+5. Cat hitbox:
+- Tighten the cat hitbox so it matches the torso/body only.
+- Exclude transparent padding, tail tip, ear tips, and animation overflow.
+- Do not change the visual sprite.
+
+6. Keep scope limited:
+- Do not rewrite the whole obstacle architecture again.
+- Do not convert everything into static physics blockers.
+- Keep this as a targeted collision calibration fix only.
+
+Goal:
+- chimney, vent, and antenna are jumpable with correct timing.
+- bird is always deadly.
+- bird and bird_fly both use scale 0.3 consistently.
+- the cat is not unfairly stopped or killed by invisible collision space.

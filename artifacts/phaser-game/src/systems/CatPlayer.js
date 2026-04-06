@@ -36,8 +36,19 @@ const COYOTE_MS = 150;
 // Phaser version quirks.  Calling setOffset() each frame is cheap (two
 // number writes + a center recalc) and guarantees correctness.
 // ---------------------------------------------------------------------------
-const BODY_OFFSET_X = 19;
-const BODY_OFFSET_Y = 70;
+// Hitbox covers the cat's torso/body only — excludes transparent padding,
+// tail tip, ear tips, and animation overflow.
+//
+//   setSize(28, 40), setOffset(22, 76), scale 0.5, origin (0.5, 1)
+//     body.left   = sprite.x − 32 + 22 = sprite.x − 10   → 70 at CAT_X=80
+//     body.right  = body.left + 28     = sprite.x + 18   → 98
+//     body.top    = sprite.y − 64 + 76 = sprite.y + 12   → 155 on ground
+//     body.bottom = body.top + 40      = sprite.y + 52   → 195 = SURFACE_Y ✓
+//
+// CAT_BODY_*_OFFSET constants in ObstacleManager must stay in sync.
+// ---------------------------------------------------------------------------
+const BODY_OFFSET_X = 22;
+const BODY_OFFSET_Y = 76;
 
 export class CatPlayer {
   /**
@@ -90,7 +101,7 @@ export class CatPlayer {
 
     // Hitbox — setSize with center:false so Phaser doesn't auto-center
     // the body (which would overwrite the manual offset below).
-    body.setSize(36, 46, false);
+    body.setSize(28, 40, false);
     body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
 
     // ── Collider (one-way — blocks from above only) ────────────────────────
