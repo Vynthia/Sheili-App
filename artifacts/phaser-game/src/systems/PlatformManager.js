@@ -50,12 +50,34 @@ const SPAWN_AHEAD  = 1200; // px ahead of right canvas edge to keep spawned
 const REPEAT_MIN = 1;
 const REPEAT_MAX = 4;
 
-const GAP_CHANCE = 0.40; // probability of a gap before each new segment
-const GAP_MIN    = 80;   // minimum gap width (px)
-const GAP_MAX    = 95;   // maximum gap width (px)
+// ---------------------------------------------------------------------------
+// Gap constants
+//
+// Cat jump math:
+//   JUMP_VEL = -310, GRAVITY_Y = 900
+//   Full air time  = 2 × 310 / 900 ≈ 0.689 s
+//   World scroll during full jump = 150 × 0.689 ≈ 103 px
+//
+//   Cat physics body width ≈ 36 px.
+//   A gap is only felt when the cat's BODY LEFT edge exits the segment AND
+//   the cat's BODY RIGHT edge has not yet entered the next segment.
+//   Effective "danger window" = gap − 36 px of body.
+//
+//   GAP_MAX = 90 px → danger window = 54 px — well within jump range (103 px).
+//   GAP_MIN = 70 px → danger window = 34 px — short but still forces a jump.
+// ---------------------------------------------------------------------------
+const GAP_CHANCE = 0.70; // probability of a gap before each new segment
+const GAP_MIN    = 70;   // minimum gap width (px)
+const GAP_MAX    = 90;   // maximum gap width (px) — always jumpable ≤ 103 px
 
-// No gaps for the first N segments: gives the player time to settle in.
-const INITIAL_SAFE_SEGMENTS = 2;
+// Cat body left/right offsets from CAT_SCREEN_X (used for gap detection).
+// body left  ≈ CAT_SCREEN_X − 13 px
+// body right ≈ CAT_SCREEN_X + 23 px
+const CAT_BODY_LEFT_OFFSET  = -13;
+const CAT_BODY_RIGHT_OFFSET =  23;
+
+// Only 1 safe segment at startup so the cat can land; gaps begin on segment 2.
+const INITIAL_SAFE_SEGMENTS = 1;
 
 // ---------------------------------------------------------------------------
 
@@ -136,11 +158,21 @@ export class PlatformManager {
 
     // ── Enable / disable the floor body based on gap detection ─────────────
     // The cat is pinned at CAT_SCREEN_X on screen.
-    // Its world-space X at this scroll offset is: scrollPx + CAT_SCREEN_X.
-    const catWorldX = scrollPx + CAT_SCREEN_X;
+    // In world space the cat's physics body spans:
+    //   left  = scrollPx + CAT_SCREEN_X + CAT_BODY_LEFT_OFFSET  (≈ scrollPx + 67)
+    //   right = scrollPx + CAT_SCREEN_X + CAT_BODY_RIGHT_OFFSET (≈ scrollPx + 103)
+    //
+    // The floor is ENABLED whenever ANY segment overlaps the cat body range.
+    // This means:
+    //   • The floor stays on until the cat's BACK foot leaves the segment edge.
+    //   • The floor turns back on as soon as the cat's FRONT foot reaches the
+    //     next segment — giving the player the most generous landing window.
+    const catBodyLeft  = scrollPx + CAT_SCREEN_X + CAT_BODY_LEFT_OFFSET;
+    const catBodyRight = scrollPx + CAT_SCREEN_X + CAT_BODY_RIGHT_OFFSET;
     let hasPlatform = false;
     for (const seg of this._segments) {
-      if (catWorldX >= seg.worldX && catWorldX < seg.worldX + seg.width) {
+      // AABB overlap: cat body overlaps segment if left < segRight AND right > segLeft
+      if (catBodyLeft < seg.worldX + seg.width && catBodyRight > seg.worldX) {
         hasPlatform = true;
         break;
       }
