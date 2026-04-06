@@ -6,23 +6,18 @@
 // Uses "single pinned body" AABB: the cat is always at CAT_SCREEN_X.
 // Each frame we check every obstacle's hitbox against the cat's body rect.
 //
-// Jump clearance budget:
-//   JUMP_VEL = -310, GRAVITY_Y = 900
-//   catBodyBottom on ground = SURFACE_Y = 195
-//   catSprite.y on ground   = SURFACE_Y − 52 = 143
-//   Jump arc: catSprite.y(τ) = 143 − 310τ + 450τ²
+// Jump clearance — two-part design:
 //
-//   For the cat to fully clear an obstacle with ANY well-timed jump, the
-//   "Y-clear window" (time the cat is above obsTop) must be LONGER than the
-//   "X-overlap window" (time the obstacle's X hitbox crosses the cat's X):
-//     Y-clear window  = 2·√(96100 − 1800·hitH) / 900  seconds
-//     X-overlap window = (catBodyW + hitW) / SCROLL_SPEED  seconds
-//                      = (36 + hitW) / 150
-//   Solving: hitH < (96100 − 9·(36+hitW)²) / 1800
-//     chimney  hitW=26 → hitH < 34  → use 20
-//     antenna  hitW=10 → hitH < 43  → use 30 ✓
-//     vent     hitW=32 → hitH < 30  → use 18
-//     bird     hitW=38 → hitH < 27  → use 16
+//   1. AIRBORNE BYPASS: ground-obstacle Y-collision is SKIPPED entirely while
+//      the cat is airborne (catBottom < SURFACE_Y − 3).  Any jump clears any
+//      ground obstacle regardless of height.  The cat can only be killed by a
+//      ground obstacle while running on the surface.
+//
+//   2. SMALL hitH: obsTop is kept close to SURFACE_Y so it only detects the
+//      cat walking directly into the base of the object (not while jumping).
+//      hitH = 5–8 px means the cat clears the hitbox after ~1 physics frame.
+//
+//   Flying bird (bird_fly) ignores the airborne bypass — jumping INTO it kills.
 //
 // ── Flying bird (bird_fly) ─────────────────────────────────────────────────
 // Completely independent of the segment-spawning system.  The bird enters
@@ -49,10 +44,10 @@ const OBSTACLE_DEPTH = 20;
 //            See clearance formula in the header — value depends on hitW.
 // ---------------------------------------------------------------------------
 const OBSTACLE_TYPES = [
-  { key: "chimney", scale: 0.7,  hitW: 26, hitH: 20 },
-  { key: "antenna", scale: 0.45, hitW: 10, hitH: 30 },
-  { key: "vent",    scale: 0.6,  hitW: 32, hitH: 18 },
-  { key: "bird",    scale: 0.4,  hitW: 38, hitH: 16 },
+  { key: "chimney", scale: 0.7,  hitW: 14, hitH: 6 },
+  { key: "antenna", scale: 0.45, hitW: 8,  hitH: 8 },
+  { key: "vent",    scale: 0.6,  hitW: 12, hitH: 6 },
+  { key: "bird",    scale: 0.4,  hitW: 10, hitH: 6 },
 ];
 
 // Maximum ground obstacles placed per segment.
@@ -199,6 +194,11 @@ export class ObstacleManager {
     this.collision = false;
 
     // ── Ground obstacles ──────────────────────────────────────────────────
+    // Airborne bypass: skip Y-collision while the cat is in the air.
+    // Any jump clears any ground obstacle — the cat can only be killed by
+    // running directly into the base while standing on the surface.
+    const catOnGround = catBottom >= SURFACE_Y - 3;
+
     for (const obs of this._obstacles) {
       const screenX = obs.worldX - scrollPx;
       obs.sprite.x  = screenX;
@@ -207,8 +207,9 @@ export class ObstacleManager {
       const obsRight = screenX + obs.hitW / 2;
 
       if (
-        catLeft   < obsRight      &&
-        catRight  > obsLeft       &&
+        catOnGround           &&
+        catLeft   < obsRight  &&
+        catRight  > obsLeft   &&
         catTop    < obs.obsBottom &&
         catBottom > obs.obsTop
       ) {
@@ -286,8 +287,8 @@ export class ObstacleManager {
         this._flySprite.setOrigin(0.5, 0.5);
         this._flySprite.setScale(BIRD_FLY_SCALE);
         this._flySprite.setDepth(OBSTACLE_DEPTH);
-        this._flySprite.setFlipX(true); // face right for left→right travel
         this._flySprite.play("bird_fly");
+        this._flySprite.setFlipX(false); // sprite naturally faces right (left→right travel)
       }
     }
   }

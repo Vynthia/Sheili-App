@@ -66,14 +66,13 @@ Spawns and scrolls rooftop obstacles (chimney, antenna, vent, skylight) on valid
 - Callback-driven: PlatformManager calls `onSegmentSpawned(seg)` for each new segment; ObstacleManager places 0–2 obstacles in the safe interior (skips first and last tile of segment to avoid gap edges and landing zones).
 - No physics bodies: collision is pure AABB in screen-space each frame inside `update(delta, catSprite)`.
 - `this.collision` is set `true` when the cat's physics hitbox overlaps any obstacle; GameScene reads this flag and calls `scene.restart()`.
-- Jump-clearance guarantee: all obstacle hitboxes have `hitH ≤ 36 px`, so the cat's body clears them at jump peak (body.bottom ≈ 142, obstacle top ≈ 118, clearance ≈ 24 px).
+- **Airborne bypass**: ground-obstacle Y-collision is skipped entirely when `catBottom < SURFACE_Y − 3` (cat is in the air). Any jump clears any ground obstacle. The cat can only die from a ground obstacle while running on the surface. Flying bird is NOT subject to this bypass.
+- **Tiny hitboxes**: hitH=6–8px (just the base of the object) so the cat clears the collision zone within 1 physics frame after jumping. hitW is intentionally narrow (8–14px) for generous X clearance.
 - Minimum spacing `MIN_SPACING = TILE_W (512 px)` between consecutive obstacles — ensures fair reaction time.
 - Grace period of 1500 ms after scene start before collision checks begin (prevents instant death on restart).
-- Assets: `public/assets/obstacles/` — all 128×128 source, displayed at scale 0.8 (102 px display height).
 - Key constants: `SURFACE_Y = 195`, `OBSTACLE_DEPTH = 20`.
-- Each ground obstacle has its own `scale` field in `OBSTACLE_TYPES` — change per-type to resize independently.
-- **Ground obstacle types** (cat MUST jump over — all hitH ≤ 36 ≤ 53px jump budget): chimney (scale 0.7), antenna (scale 0.45), vent (scale 0.6), bird sitting (scale 0.4).
-- **Flying bird** (`bird_fly`) is a completely separate system — NOT spawned via segments. It enters from the left edge, flies straight right at `BIRD_FLY_SPEED=80px/s`, and disappears off the right. After a random 4–10 s delay it reappears. Key constants: `BIRD_FLY_Y=100`, `BIRD_FLY_SCALE=0.4`, `BIRD_FLY_SPEED=80`, `BIRD_FLY_HIT_W=50`, `BIRD_FLY_HIT_H=30`. Cat is safe passing under it on the ground; any jump into it triggers a restart.
+- **Ground obstacle types** (jump to avoid): chimney (scale=0.7, hitW=14, hitH=6), antenna (scale=0.45, hitW=8, hitH=8), vent (scale=0.6, hitW=12, hitH=6), bird sitting (scale=0.4, hitW=10, hitH=6).
+- **Flying bird** (`bird_fly`) — NOT spawned via segments. Enters from left edge, flies right at `BIRD_FLY_SPEED=80px/s`, disappears off right, reappears after 4–10 s delay. `BIRD_FLY_Y=100`, `setFlipX(false)`. Safe to pass under on ground; any jump into it triggers a restart.
 
 ### BackgroundManager (`src/systems/BackgroundManager.js`)
 
