@@ -104,7 +104,8 @@ export default class GameScene extends Phaser.Scene {
     if (this._collisionGrace > 0) {
       this._collisionGrace -= delta;
     } else if (this._obstacles.collision) {
-      // Cat hit an obstacle — clean up and restart the scene.
+      // Cat hit an obstacle — clean up listeners and restart.
+      this._cat.destroy();
       this._obstacles.destroy();
       this.scene.restart();
     }

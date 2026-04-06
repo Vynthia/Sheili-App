@@ -20,20 +20,25 @@ const TILE_W       = 512; // px  — must match PlatformManager
 const SURFACE_Y    = 195; // px  — must match PlatformManager
 
 // Visual scale for all obstacle sprites (source 128×128).
-// 128 × 0.6 ≈ 77 px display — clearly visible on the 270-px-tall canvas.
-// The hitbox heights are kept below the 53-px jump-clearance ceiling so the
-// cat can always clear any obstacle with a full jump.
-const OBSTACLE_SCALE = 0.6;
-const OBSTACLE_DEPTH = 11; // one above platform tiles (depth 10)
+// 128 × 0.5 = 64 px display — obstacle top appears at SURFACE_Y − 64 = 131,
+// which is at the cat's lower-body visual level (cat sprite feet at y ≈ 143).
+const OBSTACLE_SCALE = 0.5;
 
-// Per-type hit boxes (display pixels).
-// hitH ≤ 50 → obstacle top ≥ SURFACE_Y − 50 = 145 > cat peak body.bottom (142).
-// hitW is narrower than the full display width for a forgiving horizontal margin.
+// Obstacles must render IN FRONT of the cat (cat depth = 15).
+const OBSTACLE_DEPTH = 20;
+
+// Per-type hit boxes (display pixels, at OBSTACLE_SCALE = 0.5).
+//
+// Jump-clearance budget: cat body.bottom at peak ≈ 142.
+// Obstacle must have hitH < SURFACE_Y − 142 = 53.
+// We use hitH ≤ 36 to give ≥ 17 px clearance at peak — enough to survive
+// any normal frame-rate variance without a false collision.
+// hitW is narrower than the full display width to give a forgiving margin.
 const OBSTACLE_TYPES = [
-  { key: "chimney",  hitW: 36, hitH: 48 },
-  { key: "antenna",  hitW: 16, hitH: 50 },
-  { key: "vent",     hitW: 44, hitH: 30 },
-  { key: "skylight", hitW: 50, hitH: 20 },
+  { key: "chimney",  hitW: 26, hitH: 36 },
+  { key: "antenna",  hitW: 10, hitH: 36 },
+  { key: "vent",     hitW: 32, hitH: 22 },
+  { key: "skylight", hitW: 40, hitH: 14 },
 ];
 
 // Maximum obstacles placed per segment.

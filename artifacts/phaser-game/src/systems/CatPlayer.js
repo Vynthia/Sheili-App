@@ -112,9 +112,13 @@ export class CatPlayer {
       space: Phaser.Input.Keyboard.KeyCodes.SPACE,
     });
 
-    scene.input.on('pointerdown', () => {
-      this._jumpRequested = true;
-    });
+    this._onPointerDown = () => { this._jumpRequested = true; };
+    scene.input.on('pointerdown', this._onPointerDown);
+  }
+
+  /** Remove scene-level listeners — call on scene shutdown to prevent stacking. */
+  destroy() {
+    this._scene.input.off('pointerdown', this._onPointerDown);
   }
 
   // ── Private ───────────────────────────────────────────────────────────────
