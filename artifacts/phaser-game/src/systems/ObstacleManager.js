@@ -34,14 +34,22 @@ const OBSTACLE_DEPTH = 30;
 //
 // `scale`  — display scale (source sprites are 128×128 px).
 // `hitW`   — collision box total width  (display px, centred on sprite X).
+//            Calibrated to the solid centre column of each sprite, not the
+//            full frame width, so the cat is only killed on real contact.
 // `hitH`   — collision box total height (display px, measured UP from SURFACE_Y).
 //            Must be < 53 so the cat can clear it at jump apex (catBottom≈142).
-//            Individual values calibrated to each obstacle's solid visible shape.
+//            Kept small so obsTop is close to the ground — generous clearance.
+//
+// Timing windows (catBody ≈ 28 px wide, SCROLL_SPEED = 150 px/s):
+//   chimney  hitW=16 hitH=12  obsTop=183  Y-clear=607ms  X-overlap=293ms  → 314ms
+//   antenna  hitW= 8 hitH=15  obsTop=180  Y-clear=584ms  X-overlap=240ms  → 344ms
+//   vent     hitW=18 hitH=12  obsTop=183  Y-clear=607ms  X-overlap=307ms  → 300ms
+//   bird     hitW=22 hitH=22  obsTop=173  Y-clear=528ms  X-overlap=333ms  → 195ms
 // ---------------------------------------------------------------------------
 const OBSTACLE_TYPES = [
-  { key: "chimney", scale: 0.7,  hitW: 28, hitH: 25 }, // 130 ms timing window
-  { key: "antenna", scale: 0.45, hitW: 12, hitH: 30 }, // 190 ms timing window
-  { key: "vent",    scale: 0.6,  hitW: 36, hitH: 20 }, // 195 ms timing window
+  { key: "chimney", scale: 0.7,  hitW: 16, hitH: 12 }, // 314 ms timing window
+  { key: "antenna", scale: 0.45, hitW:  8, hitH: 15 }, // 344 ms timing window
+  { key: "vent",    scale: 0.6,  hitW: 18, hitH: 12 }, // 300 ms timing window
   { key: "bird",    scale: 0.3,  hitW: 22, hitH: 22 }, // 195 ms timing window
 ];
 
@@ -185,17 +193,21 @@ export class ObstacleManager {
     this._scrollOffset += SCROLL_SPEED * (delta / 1000);
     const scrollPx = Math.round(this._scrollOffset);
 
-    const catLeft   = CAT_SCREEN_X + CAT_BODY_LEFT_OFFSET;   // 70
-    const catRight  = CAT_SCREEN_X + CAT_BODY_RIGHT_OFFSET;  // 98
-    const catTop    = catSprite.y  + CAT_BODY_TOP_OFFSET;     // sprite.y + 12
-    const catBottom = catSprite.y  + CAT_BODY_BOTTOM_OFFSET;  // sprite.y + 52
+    // Read cat bounds directly from the Arcade physics body — no offset math,
+    // no sprite.y drift.  body.left/right/top/bottom are updated by Phaser each
+    // physics step and always reflect the exact collision rectangle.
+    const catBody   = catSprite.body;
+    const catLeft   = catBody.left;
+    const catRight  = catBody.right;
+    const catTop    = catBody.top;
+    const catBottom = catBody.bottom;
 
     this.collision = false;
 
     // ── Ground obstacles ──────────────────────────────────────────────────
-    // Full AABB — no airborne bypass.
-    // hitH < 53 ensures catBottom at jump apex (≈142) is above obsTop.
-    // The cat must time its jump so the obstacle passes during Y-clear window.
+    // hitH values are small (12–22 px) so obsTop ≥ 173 px.
+    // At jump apex catBottom ≈ 142 px — well above obsTop → no collision.
+    // Timing windows: 300–344 ms (see OBSTACLE_TYPES table above).
     for (const obs of this._obstacles) {
       const screenX = obs.worldX - scrollPx;
       obs.sprite.x  = screenX;
