@@ -5,7 +5,6 @@ import Phaser from "phaser";
 // ---------------------------------------------------------------------------
 const TILE_SCALE = 2.00;
 const TILE_W     = Math.round(256 * TILE_SCALE); // 512 px per tile
-const TILE_H     = Math.round(128 * TILE_SCALE); // 256 px
 
 // Crop (texture-space pixels) — show only the brick rows, same for all tiles.
 const CROP_TOP = 91;
@@ -17,51 +16,32 @@ const CROP_H   = 128 - CROP_TOP; // 37 rows
 // PLATFORM_Y : sprite origin Y (top-left, origin 0,0) of each tile.
 // SURFACE_Y  : world Y of the walkable surface (where cat feet land).
 //              = PLATFORM_Y + CROP_TOP × TILE_SCALE  (rounded)
-//
-// Tile bottom = 13 + 256 = 269 ≈ canvas height (270 px).
-// SURFACE_Y   = 13 + round(91 × 2) = 195.
 // ---------------------------------------------------------------------------
 const PLATFORM_Y = 13;
 const SURFACE_Y  = PLATFORM_Y + Math.round(CROP_TOP * TILE_SCALE); // 195
 
 // ---------------------------------------------------------------------------
-// Physics note
+// Physics design
 //
-// Each platform SEGMENT gets its own invisible 1×1-px StaticImage whose body
-// is sized to the segment's full width.  Every frame body.reset(screenX, y)
-// repositions it in the broadphase tree to follow the scroll.
+// Moving Phaser StaticBodies every frame corrupts the static broadphase tree,
+// causing the cat to fall through visually correct platforms.
 //
-// IMPORTANT: After moving all static bodies, this._group.refresh() MUST be
-// called once per frame to flush the updated positions into the broadphase
-// spatial hash.  Without this call the collision tree retains stale positions
-// and the cat falls through the (visually correct) platforms.
+// Solution: ONE permanently-placed static floor body, fixed at the cat's
+// pinned screen X (CAT_SCREEN_X). Each frame we simply ENABLE it when the
+// cat's world-space X is inside a platform segment, or DISABLE it when the
+// cat is over a gap. The body never moves — zero broadphase issues.
 //
-// We do NOT attach bodies to the visual tile sprites — setCrop+setScale in
-// Phaser 3.90 corrupts refreshBody(), so visuals and physics are kept separate.
+// CAT_SCREEN_X must match CatPlayer.CAT_X (80 px).
+// FLOOR_W is slightly wider than the cat's physics body (36 px) so diagonal
+// contact at the segment edge still registers.
 // ---------------------------------------------------------------------------
-const GROUND_DEPTH = 9; // drawn just below visual tiles (depth 10)
+const CAT_SCREEN_X = 80;
+const FLOOR_W      = 80;  // wider than the 36-px cat body
+const FLOOR_H      = 8;   // same height as the old per-segment bodies
+const GROUND_DEPTH = 9;
 
 // ---------------------------------------------------------------------------
 // Scroll / generation constants
-//
-// Gap visibility + jumpability constraints:
-//
-//   Cat physics body width ≈ 36 px (body.left ≈ 57.5, body.right ≈ 93.5).
-//   The EFFECTIVE time the cat spends with NO platform body under it is:
-//       effective_gap_time = (gapW − 36) / SCROLL_SPEED
-//
-//   With gapW = 50: effective_time = 14/150 = 0.093 s → fall = 4 px.
-//   The next segment's 8 px body catches the cat automatically — no jump
-//   needed, gap looks and behaves as if rooftops are connected.  BUG.
-//
-//   We need effective_gap_time long enough that the cat falls PAST the
-//   next body's bottom (8 px) before it arrives, forcing a jump:
-//       fall > 8 px  →  gapW > 56 px  (threshold)
-//
-//   GAP_MIN = 80 px  →  effective_time = 0.293 s, fall ≈ 39 px → game-over
-//                        if no jump.  Clearly visible on screen (17 % width).
-//   GAP_MAX = 95 px  →  effective_time = 0.393 s, fall ≈ 69 px → game-over.
-//                        Safe: max jumpable ≈ 103 px (air time 0.689 s).
 // ---------------------------------------------------------------------------
 const SCROLL_SPEED = 150; // px / s — keep in sync with BackgroundManager
 const SPAWN_AHEAD  = 1200; // px ahead of right canvas edge to keep spawned
@@ -71,8 +51,8 @@ const REPEAT_MIN = 1;
 const REPEAT_MAX = 4;
 
 const GAP_CHANCE = 0.40; // probability of a gap before each new segment
-const GAP_MIN    = 80;   // minimum gap width — forces a real fall if missed
-const GAP_MAX    = 95;   // maximum gap width — safe ceiling is ~103 px
+const GAP_MIN    = 80;   // minimum gap width (px)
+const GAP_MAX    = 95;   // maximum gap width (px)
 
 // No gaps for the first N segments: gives the player time to settle in.
 const INITIAL_SAFE_SEGMENTS = 2;
@@ -90,16 +70,15 @@ export class PlatformManager {
   constructor(scene) {
     this.scene = scene;
 
-    // World-space x cursor: where the NEXT segment (after any gap) will start.
-    this._nextWorldX     = 0;
-    this._scrollOffset   = 0;
+    this._nextWorldX      = 0;
+    this._scrollOffset    = 0;
     this._segmentsSpawned = 0;
 
-    // Live segment records:
-    //   { worldX, width, ground: staticImage, tiles: [{sprite, localX}, ...] }
+    // Segment records — visual only (no per-segment physics body):
+    //   { worldX, width, tiles: [{sprite, localX}, ...] }
     this._segments = [];
 
-    // Shared 1×1 white texture for invisible ground bodies.
+    // ── Shared 1×1 white texture for the floor body ────────────────────────
     if (!scene.textures.exists("__ground_px")) {
       const gfx = scene.add.graphics();
       gfx.fillStyle(0xffffff, 1);
@@ -108,10 +87,25 @@ export class PlatformManager {
       gfx.destroy();
     }
 
-    // Single static group — CatPlayer registers one collider against this.
+    // ── Static group (CatPlayer registers its collider against this) ────────
     this._group = scene.physics.add.staticGroup();
 
-    // Seed enough segments to fill canvas + buffer before first frame.
+    // ── THE floor body — permanently at the cat's screen X, never moves ────
+    // Centred on CAT_SCREEN_X, top edge at SURFACE_Y.
+    this._floor = scene.physics.add.staticImage(
+      CAT_SCREEN_X, SURFACE_Y, "__ground_px"
+    );
+    this._floor.setOrigin(0.5, 0);   // top-centre anchor
+    this._floor.setAlpha(0);
+    this._floor.setDepth(GROUND_DEPTH);
+    this._floor.body.setSize(FLOOR_W, FLOOR_H);
+    // Manually pin the body — setOrigin(0.5, 0) means:
+    //   body.x = sprite.x − displayOriginX = CAT_SCREEN_X − FLOOR_W/2
+    //   body.y = sprite.y − displayOriginY  = SURFACE_Y − 0 = SURFACE_Y
+    this._floor.body.reset(CAT_SCREEN_X - FLOOR_W / 2, SURFACE_Y);
+    this._group.add(this._floor);
+
+    // ── Seed enough segments to fill canvas + buffer ───────────────────────
     const canvasW = scene.scale.width;
     while (this._getRightWorldEdge() < canvasW + SPAWN_AHEAD) {
       this._spawnNextSegment();
@@ -123,10 +117,7 @@ export class PlatformManager {
   /** The static physics group — pass to CatPlayer for the collider. */
   get group() { return this._group; }
 
-  /**
-   * World Y of the walkable brick surface.
-   * CatPlayer uses this to position the cat at spawn.
-   */
+  /** World Y of the walkable brick surface. */
   get surfaceY() { return SURFACE_Y; }
 
   /** Call every frame from GameScene.update(). */
@@ -135,24 +126,26 @@ export class PlatformManager {
     const scrollPx = Math.round(this._scrollOffset);
     const canvasW  = this.scene.scale.width;
 
-    // ── Move segment bodies and tiles with the scroll ──────────────────────
+    // ── Reposition visual tiles ────────────────────────────────────────────
     for (const seg of this._segments) {
       const screenX = seg.worldX - scrollPx;
-
-      // Move the static physics sprite and body to the new screen position.
-      seg.ground.x = screenX;
-      seg.ground.body.reset(screenX, SURFACE_Y);
-
-      // Reposition visual tiles.
       for (const t of seg.tiles) {
         t.sprite.x = screenX + t.localX;
       }
     }
 
-    // ── Flush all moved static bodies into the broadphase tree ─────────────
-    // Without this call the spatial hash keeps stale positions, causing the
-    // cat to fall through platforms that look correct on screen.
-    this._group.refresh();
+    // ── Enable / disable the floor body based on gap detection ─────────────
+    // The cat is pinned at CAT_SCREEN_X on screen.
+    // Its world-space X at this scroll offset is: scrollPx + CAT_SCREEN_X.
+    const catWorldX = scrollPx + CAT_SCREEN_X;
+    let hasPlatform = false;
+    for (const seg of this._segments) {
+      if (catWorldX >= seg.worldX && catWorldX < seg.worldX + seg.width) {
+        hasPlatform = true;
+        break;
+      }
+    }
+    this._floor.body.enable = hasPlatform;
 
     // ── Recycle segments scrolled fully off the left edge ──────────────────
     while (this._segments.length > 0) {
@@ -165,7 +158,7 @@ export class PlatformManager {
       }
     }
 
-    // ── Spawn new segments ahead of the right canvas edge ─────────────────
+    // ── Spawn new segments ahead ───────────────────────────────────────────
     while (this._getRightWorldEdge() < scrollPx + canvasW + SPAWN_AHEAD) {
       this._spawnNextSegment();
     }
@@ -181,13 +174,11 @@ export class PlatformManager {
     let withLanding = false;
     if (!isSafe && Math.random() < GAP_CHANCE) {
       const gapW = randInt(GAP_MIN, GAP_MAX);
-      this._nextWorldX += gapW; // advance cursor past the gap
-      withLanding = true;       // the segment opens with landing tiles
+      this._nextWorldX += gapW;
+      withLanding = true;
     }
 
-    // ── Decide tile sequence ───────────────────────────────────────────────
-    // Order: roof_landing (1–4×, only after gap) → roof_left (1–4×)
-    //        → roof_middle (1–4×) → roof_right (1–4×)
+    // ── Tile sequence: landing(1-4)? + left(1-4) + middle(1-4) + right(1-4)
     const tileKeys = [];
 
     if (withLanding) {
@@ -222,28 +213,13 @@ export class PlatformManager {
       localX += TILE_W;
     }
 
-    // ── Create invisible physics body for this segment ─────────────────────
-    const screenX = segWorldX - scrollPx;
-    const ground  = this.scene.physics.add.staticImage(
-      screenX, SURFACE_Y, "__ground_px"
-    );
-    ground.setOrigin(0, 0);
-    ground.setAlpha(0);
-    ground.setDepth(GROUND_DEPTH);
-    ground.body.setSize(segWidth, 8); // 8 px tall — tolerant of 1-frame timing gaps
-    this._group.add(ground);
-    ground.body.reset(screenX, SURFACE_Y);
-
-    // ── Register segment ───────────────────────────────────────────────────
-    this._segments.push({ worldX: segWorldX, width: segWidth, ground, tiles });
+    this._segments.push({ worldX: segWorldX, width: segWidth, tiles });
     this._nextWorldX += segWidth;
     this._segmentsSpawned++;
   }
 
   _destroySegment(seg) {
     for (const t of seg.tiles) t.sprite.destroy();
-    // group.remove(child, removeFromScene, destroyChild) — cleans everything.
-    this._group.remove(seg.ground, true, true);
   }
 
   _getRightWorldEdge() {
