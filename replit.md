@@ -66,10 +66,11 @@ Spawns and scrolls rooftop obstacles (chimney, antenna, vent, skylight) on valid
 - Callback-driven: PlatformManager calls `onSegmentSpawned(seg)` for each new segment; ObstacleManager places 0–2 obstacles in the safe interior (skips first and last tile of segment to avoid gap edges and landing zones).
 - No physics bodies: collision is pure AABB in screen-space each frame inside `update(delta, catSprite)`.
 - `this.collision` is set `true` when the cat's physics hitbox overlaps any obstacle; GameScene reads this flag and calls `scene.restart()`.
-- Jump-clearance guarantee: all obstacle hitboxes have `hitH ≤ 44 px`, so the cat's body clears them at jump peak (body.bottom ≈ 142, obstacle.top ≥ 151).
+- Jump-clearance guarantee: all obstacle hitboxes have `hitH ≤ 36 px`, so the cat's body clears them at jump peak (body.bottom ≈ 142, obstacle top ≈ 118, clearance ≈ 24 px).
 - Minimum spacing `MIN_SPACING = TILE_W (512 px)` between consecutive obstacles — ensures fair reaction time.
 - Grace period of 1500 ms after scene start before collision checks begin (prevents instant death on restart).
-- Assets: `public/assets/obstacles/` — all 128×128 source, displayed at scale 0.35.
+- Assets: `public/assets/obstacles/` — all 128×128 source, displayed at scale 0.8 (102 px display height).
+- Key constants: `SURFACE_Y = 220` (must match PlatformManager), `OBSTACLE_SCALE = 0.8`, `OBSTACLE_DEPTH = 20`.
 
 ### BackgroundManager (`src/systems/BackgroundManager.js`)
 

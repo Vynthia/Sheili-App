@@ -17,22 +17,21 @@
 
 const SCROLL_SPEED = 150; // px/s — must match PlatformManager
 const TILE_W       = 512; // px  — must match PlatformManager
-const SURFACE_Y    = 195; // px  — must match PlatformManager
+const SURFACE_Y    = 220; // px  — must match PlatformManager
 
 // Visual scale for all obstacle sprites (source 128×128).
-// 128 × 0.5 = 64 px display — obstacle top appears at SURFACE_Y − 64 = 131,
-// which is at the cat's lower-body visual level (cat sprite feet at y ≈ 143).
-const OBSTACLE_SCALE = 0.5;
+// 128 × 0.8 = 102 px display — obstacle top appears at SURFACE_Y − 102 = 118,
+// which is prominently visible on the cat's body level (cat sprite feet at y ≈ 220).
+const OBSTACLE_SCALE = 0.8;
 
 // Obstacles must render IN FRONT of the cat (cat depth = 15).
 const OBSTACLE_DEPTH = 20;
 
-// Per-type hit boxes (display pixels, at OBSTACLE_SCALE = 0.5).
+// Per-type hit boxes (display pixels, at OBSTACLE_SCALE = 0.8).
 //
 // Jump-clearance budget: cat body.bottom at peak ≈ 142.
-// Obstacle must have hitH < SURFACE_Y − 142 = 53.
-// We use hitH ≤ 36 to give ≥ 17 px clearance at peak — enough to survive
-// any normal frame-rate variance without a false collision.
+// Obstacle top at SURFACE_Y − 102 = 118 → clearance = 142 − 118 = 24 px.
+// We use hitH ≤ 36 to maintain safe jump clearance even at larger scale.
 // hitW is narrower than the full display width to give a forgiving margin.
 const OBSTACLE_TYPES = [
   { key: "chimney",  hitW: 26, hitH: 36 },
