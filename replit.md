@@ -70,10 +70,10 @@ Spawns and scrolls rooftop obstacles (chimney, antenna, vent, skylight) on valid
 - Minimum spacing `MIN_SPACING = TILE_W (512 px)` between consecutive obstacles — ensures fair reaction time.
 - Grace period of 1500 ms after scene start before collision checks begin (prevents instant death on restart).
 - Assets: `public/assets/obstacles/` — all 128×128 source, displayed at scale 0.8 (102 px display height).
-- Key constants: `SURFACE_Y = 195`, `BIRD_FLY_Y = 100`, `OBSTACLE_DEPTH = 20`.
-- Each obstacle type has its **own `scale` field** — change it per-type in `OBSTACLE_TYPES` to resize individually.
-- **Ground obstacle types** (cat must jump over): chimney (scale 0.6), antenna (scale 0.6), vent (scale 0.6), bird sitting (scale 0.6).
-- **Airborne obstacle type** (cat must NOT jump into): bird_fly (scale 0.4) — animated 2-frame 256×128 spritesheet, floats at Y=100; safe to run under, fatal if the cat jumps into it.
+- Key constants: `SURFACE_Y = 195`, `OBSTACLE_DEPTH = 20`.
+- Each ground obstacle has its own `scale` field in `OBSTACLE_TYPES` — change per-type to resize independently.
+- **Ground obstacle types** (cat MUST jump over — all hitH ≤ 36 ≤ 53px jump budget): chimney (scale 0.7), antenna (scale 0.45), vent (scale 0.6), bird sitting (scale 0.4).
+- **Flying bird** (`bird_fly`) is a completely separate system — NOT spawned via segments. It enters from the left edge, flies straight right at `BIRD_FLY_SPEED=80px/s`, and disappears off the right. After a random 4–10 s delay it reappears. Key constants: `BIRD_FLY_Y=100`, `BIRD_FLY_SCALE=0.4`, `BIRD_FLY_SPEED=80`, `BIRD_FLY_HIT_W=50`, `BIRD_FLY_HIT_H=30`. Cat is safe passing under it on the ground; any jump into it triggers a restart.
 
 ### BackgroundManager (`src/systems/BackgroundManager.js`)
 

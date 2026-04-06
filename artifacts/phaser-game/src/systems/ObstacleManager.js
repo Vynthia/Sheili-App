@@ -1,78 +1,96 @@
 // ---------------------------------------------------------------------------
-// ObstacleManager — spawns and scrolls rooftop obstacles.
+// ObstacleManager — spawns and scrolls rooftop obstacles, and manages the
+// independent flying bird that crosses the canvas from left to right.
 //
-// Obstacle collision uses the same "single pinned body" philosophy as the
-// floor: the cat is always at a fixed screen X (CAT_SCREEN_X).  Every frame
-// we check which obstacle — if any — is currently overlapping the cat's
-// physics-body bounding box in screen space.  If an overlap is detected the
-// manager sets its `collision` flag so GameScene can act (e.g. restart).
+// ── Ground obstacle collision ──────────────────────────────────────────────
+// Uses "single pinned body" AABB: the cat is always at CAT_SCREEN_X.
+// Each frame we check every obstacle's hitbox against the cat's body rect.
 //
-// Jump clearance maths:
+// Jump clearance budget:
 //   JUMP_VEL = -310, GRAVITY_Y = 900
-//   Peak height above ground = 310² / (2 × 900) ≈ 53 px
-//   PlatformManager surfaceY = 195 → cat sprite.y on ground ≈ 195
-//   At peak: sprite.y ≈ 195 − 53 = 142
-//   catBodyTop at peak    = 142 + 6  = 148
-//   catBodyBottom at peak = 142 + 52 = 194
-//   catBodyTop on ground  = 195 + 6  = 201
+//   Peak rise = 310² / (2 × 900) ≈ 53 px above rest position
+//   catBodyBottom on ground = SURFACE_Y (body rests on platform)
+//   catBodyBottom at peak   = SURFACE_Y − 53 = 142
+//   → hitH ≤ 53 guarantees the cat can jump over; we use hitH ≤ 36 for a
+//     generous 17 px of clearance at the top of the arc.
 //
-// Ground obstacles: hitH ≤ 36 so the cat can jump over them.
-// Airborne obstacles (bird_fly): BIRD_FLY_Y=100, hitH=30
-//   obsTop=85, obsBottom=115 → safe on ground (catTop=201 > 115),
-//   fatal during jump (catTop=148 > 115 — just above; adjust BIRD_FLY_Y if needed).
+// ── Flying bird (bird_fly) ─────────────────────────────────────────────────
+// Completely independent of the segment-spawning system.  The bird enters
+// from the left edge, flies straight right at BIRD_FLY_SPEED px/s, and
+// disappears off the right edge.  After a random delay it reappears.
+// The cat must NOT jump while the bird is passing overhead — any jump that
+// intersects the bird's hitbox triggers a restart.
 // ---------------------------------------------------------------------------
 
 const SCROLL_SPEED = 150; // px/s — must match PlatformManager
 const TILE_W       = 512; // px  — must match PlatformManager
 const SURFACE_Y    = 195; // px  — visual ground Y for obstacle sprites
 
-// Y centre of the flying bird in screen space.
-// Increase to move the bird lower (easier); decrease to move it higher.
-const BIRD_FLY_Y = 100;
-
 // Obstacles must render IN FRONT of the cat (cat depth = 15).
 const OBSTACLE_DEPTH = 20;
 
 // ---------------------------------------------------------------------------
-// Obstacle type definitions.
+// Ground obstacle type definitions.
 //
-// Each entry has an individual `scale` so each type can be tuned
-// independently.  To adjust a specific obstacle's size, change its scale here.
-//
-// Ground types (airborne: false):
-//   hitW / hitH are the collision box in display pixels.
-//   obsBottom = SURFACE_Y, obsTop = SURFACE_Y − hitH.
-//
-// Airborne types (airborne: true):
-//   hitbox is centred on BIRD_FLY_Y in screen space.
-//   obsTop = BIRD_FLY_Y − hitH/2, obsBottom = BIRD_FLY_Y + hitH/2.
+// `scale`  — individual display scale (source sprites are 128×128).
+//            Change per-type to resize an obstacle independently.
+// `hitW`   — collision box half-width (display px); narrower = more forgiving.
+// `hitH`   — collision box height (display px, measured up from SURFACE_Y).
+//            Must be ≤ 53 so the cat can always jump over.
 // ---------------------------------------------------------------------------
 const OBSTACLE_TYPES = [
-  { key: "chimney",  scale: 0.6, hitW: 26, hitH: 36, airborne: false },
-  { key: "antenna",  scale: 0.6, hitW: 10, hitH: 36, airborne: false },
-  { key: "vent",     scale: 0.6, hitW: 32, hitH: 22, airborne: false },
-  { key: "bird",     scale: 0.6, hitW: 40, hitH: 30, airborne: false },
-  { key: "bird_fly", scale: 0.4, hitW: 50, hitH: 30, airborne: true  },
+  { key: "chimney", scale: 0.7,  hitW: 26, hitH: 36 },
+  { key: "antenna", scale: 0.45, hitW: 10, hitH: 36 },
+  { key: "vent",    scale: 0.6,  hitW: 32, hitH: 22 },
+  { key: "bird",    scale: 0.4,  hitW: 40, hitH: 30 },
 ];
 
-// Maximum obstacles placed per segment.
+// Maximum ground obstacles placed per segment.
 const MAX_PER_SEGMENT = 2;
 
-// Minimum world-space distance between any two consecutive obstacles.
+// Minimum world-space gap between any two consecutive ground obstacles.
 const MIN_SPACING = TILE_W;
 
-// Per-tile spawn probability (applied to each safe tile independently).
+// Per-tile spawn probability for ground obstacles.
 const SPAWN_CHANCE = 0.55;
 
-// Cat body offsets from CAT_SCREEN_X used for X collision.
-const CAT_SCREEN_X          = 80;
-const CAT_BODY_LEFT_OFFSET  = -13; // catBodyLeft  = 80 − 13 = 67
-const CAT_BODY_RIGHT_OFFSET =  23; // catBodyRight = 80 + 23 = 103
+// ---------------------------------------------------------------------------
+// Flying bird constants.
+// ---------------------------------------------------------------------------
 
-// Cat body Y offsets from sprite.y (origin 0.5,1 → displayOriginY = 32 at
-// scale 0.5; BODY_OFFSET_Y = 70 relative to unscaled top).
-const CAT_BODY_TOP_OFFSET    =  6;  // body.top    = sprite.y + 6
-const CAT_BODY_BOTTOM_OFFSET = 52;  // body.bottom = sprite.y + 52
+// Display scale for the bird_fly spritesheet (source 128×128 per frame).
+const BIRD_FLY_SCALE = 0.4;
+
+// Screen Y centre of the flying bird (0 = top of canvas).
+// At Y=100 the bird is well above the platform (SURFACE_Y=195) so the cat
+// passes safely underneath when running.  Any full jump will reach it.
+const BIRD_FLY_Y = 100;
+
+// Horizontal travel speed (px/s, left → right).
+const BIRD_FLY_SPEED = 80;
+
+// Collision hitbox for the flying bird (display px, centred on BIRD_FLY_Y).
+const BIRD_FLY_HIT_W = 50;
+const BIRD_FLY_HIT_H = 30;
+
+// Canvas width — used to detect when the bird exits the right edge.
+const CANVAS_W = 480;
+
+// Random gap between one crossing and the next (milliseconds).
+const BIRD_FLY_MIN_DELAY = 4000;
+const BIRD_FLY_MAX_DELAY = 10000;
+
+// ---------------------------------------------------------------------------
+// Cat body offsets (used for both ground and flying-bird collision).
+// ---------------------------------------------------------------------------
+const CAT_SCREEN_X          = 80;
+const CAT_BODY_LEFT_OFFSET  = -13; // catLeft  = 67
+const CAT_BODY_RIGHT_OFFSET =  23; // catRight = 103
+
+// body.top    = catSprite.y + 6
+// body.bottom = catSprite.y + 52
+const CAT_BODY_TOP_OFFSET    =  6;
+const CAT_BODY_BOTTOM_OFFSET = 52;
 
 // ---------------------------------------------------------------------------
 
@@ -80,38 +98,44 @@ function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+function randDelay() {
+  return randInt(BIRD_FLY_MIN_DELAY, BIRD_FLY_MAX_DELAY);
+}
+
 // ---------------------------------------------------------------------------
 
 export class ObstacleManager {
-  /**
-   * @param {Phaser.Scene} scene
-   */
+  /** @param {Phaser.Scene} scene */
   constructor(scene) {
     this._scene        = scene;
     this._scrollOffset = 0;
-    this._obstacles    = []; // { worldX, sprite, hitW, obsTop, obsBottom }
+    this._obstacles    = []; // ground obstacles: { worldX, sprite, hitW, obsTop, obsBottom }
     this._lastWorldX   = -MIN_SPACING * 2;
     this.collision     = false;
+
+    // Flying bird state
+    this._flySprite    = null;  // live Phaser sprite, or null when not in flight
+    this._flyX         = 0;    // current screen X of the bird
+    this._flyTimer     = randDelay(); // ms until the bird next appears
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
   /**
-   * Called by PlatformManager (via GameScene callback) whenever a new segment
-   * is spawned.  Randomly places 0–2 obstacles in the safe interior of the
-   * segment — never on the first tile or the last tile.
+   * Called by PlatformManager whenever a new segment is spawned.
+   * Randomly places 0–MAX_PER_SEGMENT ground obstacles in the segment interior.
    *
-   * @param {{ worldX: number, width: number, withLanding: boolean }} seg
+   * @param {{ worldX: number, width: number }} seg
    */
   onSegmentSpawned(seg) {
     const numTiles = Math.round(seg.width / TILE_W);
     if (numTiles < 3) return;
 
-    // Collect eligible tile indices (skip index 0 and the last).
+    // Eligible tile indices: skip the first (landing edge) and last (gap edge).
     const eligible = [];
     for (let i = 1; i < numTiles - 1; i++) eligible.push(i);
 
-    // Shuffle in place (Fisher-Yates).
+    // Fisher-Yates shuffle.
     for (let i = eligible.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
@@ -128,32 +152,17 @@ export class ObstacleManager {
 
       const type     = OBSTACLE_TYPES[randInt(0, OBSTACLE_TYPES.length - 1)];
       const scrollPx = Math.round(this._scrollOffset);
-      const screenX  = worldX - scrollPx;
 
-      let sprite;
-
-      if (type.airborne) {
-        // Animated flying bird — use sprite so animation plays.
-        sprite = this._scene.add.sprite(screenX, BIRD_FLY_Y, type.key);
-        sprite.setOrigin(0.5, 0.5);
-        sprite.setScale(type.scale);
-        sprite.play("bird_fly");
-      } else {
-        // Static ground obstacle — plain image, bottom sits on SURFACE_Y.
-        sprite = this._scene.add.image(screenX, SURFACE_Y, type.key);
-        sprite.setOrigin(0.5, 1);
-        sprite.setScale(type.scale);
-      }
-
+      const sprite = this._scene.add.image(
+        worldX - scrollPx, SURFACE_Y, type.key
+      );
+      sprite.setOrigin(0.5, 1);  // bottom-centre on the surface
+      sprite.setScale(type.scale);
       sprite.setDepth(OBSTACLE_DEPTH);
 
-      // Pre-compute the screen-space hitbox vertical bounds.
-      const obsTop    = type.airborne
-        ? BIRD_FLY_Y - type.hitH / 2
-        : SURFACE_Y  - type.hitH;
-      const obsBottom = type.airborne
-        ? BIRD_FLY_Y + type.hitH / 2
-        : SURFACE_Y;
+      // Hitbox vertical bounds, pre-computed once at spawn.
+      const obsTop    = SURFACE_Y - type.hitH;
+      const obsBottom = SURFACE_Y;
 
       this._obstacles.push({ worldX, sprite, hitW: type.hitW, obsTop, obsBottom });
       this._lastWorldX = worldX;
@@ -162,12 +171,11 @@ export class ObstacleManager {
   }
 
   /**
-   * Scroll all obstacles, recycle off-screen ones, and test collision with
-   * the cat.  Sets `this.collision = true` if the cat's body overlaps any
-   * obstacle hitbox this frame.
+   * Advance all obstacles and the flying bird, then run collision checks.
+   * Sets `this.collision = true` if the cat's body overlaps any hazard.
    *
    * @param {number}                    delta     Phaser delta ms
-   * @param {Phaser.GameObjects.Sprite} catSprite The cat's physics sprite
+   * @param {Phaser.GameObjects.Sprite} catSprite
    */
   update(delta, catSprite) {
     this._scrollOffset += SCROLL_SPEED * (delta / 1000);
@@ -180,17 +188,17 @@ export class ObstacleManager {
 
     this.collision = false;
 
+    // ── Ground obstacles ──────────────────────────────────────────────────
     for (const obs of this._obstacles) {
       const screenX = obs.worldX - scrollPx;
       obs.sprite.x  = screenX;
 
-      const obsLeft   = screenX - obs.hitW / 2;
-      const obsRight  = screenX + obs.hitW / 2;
+      const obsLeft  = screenX - obs.hitW / 2;
+      const obsRight = screenX + obs.hitW / 2;
 
-      // AABB overlap test using pre-computed vertical bounds.
       if (
-        catLeft   < obsRight    &&
-        catRight  > obsLeft     &&
+        catLeft   < obsRight      &&
+        catRight  > obsLeft       &&
         catTop    < obs.obsBottom &&
         catBottom > obs.obsTop
       ) {
@@ -198,7 +206,7 @@ export class ObstacleManager {
       }
     }
 
-    // Recycle obstacles that have scrolled fully off the left edge.
+    // Recycle obstacles that have fully scrolled off the left edge.
     while (this._obstacles.length > 0) {
       const obs = this._obstacles[0];
       if (obs.worldX - scrollPx + obs.hitW / 2 < 0) {
@@ -208,11 +216,69 @@ export class ObstacleManager {
         break;
       }
     }
+
+    // ── Flying bird ───────────────────────────────────────────────────────
+    this._updateFlyingBird(delta, catLeft, catRight, catTop, catBottom);
   }
 
-  /** Clean up all live obstacles (call on scene restart). */
+  /** Destroy all managed objects (call before scene.restart()). */
   destroy() {
     for (const obs of this._obstacles) obs.sprite.destroy();
     this._obstacles = [];
+
+    if (this._flySprite) {
+      this._flySprite.destroy();
+      this._flySprite = null;
+    }
+  }
+
+  // ── Private ────────────────────────────────────────────────────────────────
+
+  /**
+   * Manages the independent flying bird lifecycle:
+   *   waiting → spawns from left → flies right → exits right → waiting …
+   */
+  _updateFlyingBird(delta, catLeft, catRight, catTop, catBottom) {
+    if (this._flySprite) {
+      // Bird is in flight — move it to the right.
+      this._flyX       += BIRD_FLY_SPEED * (delta / 1000);
+      this._flySprite.x = this._flyX;
+
+      // Collision check (AABB, hitbox centred at flyX / BIRD_FLY_Y).
+      const halfW = BIRD_FLY_HIT_W / 2;
+      const halfH = BIRD_FLY_HIT_H / 2;
+      if (
+        catLeft   < this._flyX + halfW          &&
+        catRight  > this._flyX - halfW          &&
+        catTop    < BIRD_FLY_Y + halfH          &&
+        catBottom > BIRD_FLY_Y - halfH
+      ) {
+        this.collision = true;
+      }
+
+      // Bird has exited the right edge — despawn and start the delay timer.
+      const halfDisplayW = (128 * BIRD_FLY_SCALE) / 2;
+      if (this._flyX - halfDisplayW > CANVAS_W) {
+        this._flySprite.destroy();
+        this._flySprite = null;
+        this._flyTimer  = randDelay();
+      }
+    } else {
+      // Waiting — count down until the next crossing.
+      this._flyTimer -= delta;
+      if (this._flyTimer <= 0) {
+        const halfDisplayW = (128 * BIRD_FLY_SCALE) / 2;
+        this._flyX = -halfDisplayW; // start just off the left edge
+
+        this._flySprite = this._scene.add.sprite(
+          this._flyX, BIRD_FLY_Y, "bird_fly"
+        );
+        this._flySprite.setOrigin(0.5, 0.5);
+        this._flySprite.setScale(BIRD_FLY_SCALE);
+        this._flySprite.setDepth(OBSTACLE_DEPTH);
+        this._flySprite.setFlipX(true); // face right for left→right travel
+        this._flySprite.play("bird_fly");
+      }
+    }
   }
 }
