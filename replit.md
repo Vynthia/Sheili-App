@@ -70,7 +70,9 @@ Spawns and scrolls rooftop obstacles (chimney, antenna, vent, skylight) on valid
 - Minimum spacing `MIN_SPACING = TILE_W (512 px)` between consecutive obstacles — ensures fair reaction time.
 - Grace period of 1500 ms after scene start before collision checks begin (prevents instant death on restart).
 - Assets: `public/assets/obstacles/` — all 128×128 source, displayed at scale 0.8 (102 px display height).
-- Key constants: `SURFACE_Y = 220` (must match PlatformManager), `OBSTACLE_SCALE = 0.8`, `OBSTACLE_DEPTH = 20`.
+- Key constants: `SURFACE_Y = 220` (visual ground Y for obstacle sprites), `OBSTACLE_SCALE = 0.8`, `BIRD_FLY_SCALE = 0.5`, `BIRD_FLY_Y = 165`, `OBSTACLE_DEPTH = 20`.
+- **Ground obstacle types**: chimney, antenna, vent, bird (sitting) — cat must jump over them.
+- **Airborne obstacle type**: bird_fly (animated 2-frame 256×128 spritesheet) — floats at Y=165 in the air; cat must NOT jump into it (safe to pass under, fatal if jumped into).
 
 ### BackgroundManager (`src/systems/BackgroundManager.js`)
 

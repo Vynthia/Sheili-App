@@ -31,7 +31,14 @@ export default class GameScene extends Phaser.Scene {
     this.load.image("chimney",  "assets/obstacles/chimney.png");
     this.load.image("antenna",  "assets/obstacles/antenna.png");
     this.load.image("vent",     "assets/obstacles/vent.png");
-    this.load.image("skylight", "assets/obstacles/skylight.png");
+    this.load.image("bird",     "assets/obstacles/bird.png");
+
+    // ── Airborne obstacles ─────────────────────────────────────────────
+    // bird_fly.png is a 256×128 spritesheet with 2 frames (128×128 each).
+    this.load.spritesheet("bird_fly", "assets/obstacles/bird_fly.png", {
+      frameWidth:  128,
+      frameHeight: 128,
+    });
 
     // ── Cat ────────────────────────────────────────────────────────────
     this.load.image("cat_start", "assets/cat/cat_start.png");
@@ -70,6 +77,17 @@ export default class GameScene extends Phaser.Scene {
 
     // ── Player ────────────────────────────────────────────────────────────
     this._cat = new CatPlayer(this, this._platforms.group, this._platforms.surfaceY);
+
+    // ── Animations ────────────────────────────────────────────────────────
+    // Flying bird: 2-frame loop from the 256×128 spritesheet.
+    if (!this.anims.exists("bird_fly")) {
+      this.anims.create({
+        key:       "bird_fly",
+        frames:    this.anims.generateFrameNumbers("bird_fly", { start: 0, end: 1 }),
+        frameRate: 6,
+        repeat:    -1,
+      });
+    }
 
     // ── Day / night cycle ─────────────────────────────────────────────────
     this._CYCLE_DURATION_MS = 80_000;
