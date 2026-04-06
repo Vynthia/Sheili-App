@@ -1,0 +1,67 @@
+Do NOT change anything related to:
+- size
+- scale
+- Y-position
+- visual alignment
+- layout or art style
+
+Only fix rendering order (depth) and collision logic.
+
+The affected obstacles are ONLY:
+- chimney
+- bird
+- vent
+- antenna
+
+Please implement the following:
+
+1. Enforce fixed depth values:
+- The cat must always have a constant depth.
+- chimney, bird, vent, and antenna must always have a constant depth when spawned.
+- If obstacles should always render in front of the cat:
+  cat depth = 20
+  obstacles depth = 25
+- If the cat should render in front:
+  cat depth = 30
+  obstacles depth = 20
+
+2. Prevent dynamic or inconsistent layering:
+- Do NOT use any logic that changes depth dynamically.
+- Do NOT sort objects by Y.
+- Set depth explicitly on creation for every obstacle instance.
+
+3. Use proper Arcade Physics collisions:
+- chimney, bird, vent, and antenna must be physics-enabled objects (physics.add.sprite or physics.add.image).
+- They must all be part of a physics group (this.obstacles).
+- Connect cat and obstacles using:
+  this.physics.add.collider(this.cat, this.obstacles, this.hitObstacle, null, this);
+
+4. Restart on collision:
+- On any collision between the cat and chimney, bird, vent, or antenna:
+  immediately call this.scene.restart();
+- No delay, no animation required.
+
+5. Fix hitboxes WITHOUT changing visuals:
+- Do NOT modify sprite size, scale, or position.
+- Only adjust:
+  body.setSize(...)
+  body.setOffset(...)
+- Ensure hitboxes match the visible obstacle shapes.
+
+6. Debug validation:
+- Temporarily enable physics debug to verify hitboxes:
+  this.physics.world.createDebugGraphic();
+- Ensure collision boxes align correctly with chimney, bird, vent, and antenna.
+- Disable debug after verification.
+
+7. Important separation:
+- Background (rooftops / parallax) must remain visual only (no collision).
+- chimney, bird, vent, and antenna must remain separate collidable physics objects.
+- Do NOT solve the issue by visually shifting sprites — fix it via depth, collider, and hitbox only.
+
+8. Scope restriction:
+- Only modify code related to:
+  - the cat
+  - the obstacle group
+  - chimney, bird, vent, antenna
+- Do NOT change any other assets, systems, or gameplay logic.

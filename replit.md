@@ -66,13 +66,12 @@ Spawns and scrolls rooftop obstacles (chimney, antenna, vent, skylight) on valid
 - Callback-driven: PlatformManager calls `onSegmentSpawned(seg)` for each new segment; ObstacleManager places 0–2 obstacles in the safe interior (skips first and last tile of segment to avoid gap edges and landing zones).
 - No physics bodies: collision is pure AABB in screen-space each frame inside `update(delta, catSprite)`.
 - `this.collision` is set `true` when the cat's physics hitbox overlaps any obstacle; GameScene reads this flag and calls `scene.restart()`.
-- **Full AABB collision — no airborne bypass**: cat must genuinely jump OVER each obstacle's hitbox. Running into an obstacle while on the ground or jumping into it mid-air both trigger game over. Cat must arc clear above `obsTop`.
-- **hitH=20** for all obstacles. Cat peak `catBottom ≈ 142 < obsTop=175` → jump ALWAYS clears at peak. Provides ~119–212 ms timing window depending on hitW.
-- Minimum spacing `MIN_SPACING = TILE_W (512 px)` between consecutive obstacles — ensures fair reaction time.
-- Grace period of 1500 ms after scene start before collision checks begin (prevents instant death on restart).
-- Key constants: `SURFACE_Y = 195`. **Dynamic obstacle depth**: when cat is jumping (`catBottom < SURFACE_Y`), obstacles render in front (depth 20); when running on ground, obstacles render behind (depth 10). This ensures the cat always appears at the correct depth level relative to obstacles.
-- **Ground obstacle types**: chimney (scale=0.7, hitW=90, hitH=20), antenna (scale=0.45, hitW=58, hitH=20), vent (scale=0.6, hitW=77, hitH=20), bird sitting (scale=0.4, hitW=51, hitH=20). hitW matches the visual sprite width (128px source × scale) to prevent passing through the sides.
-- **Flying bird** (`bird_fly`) — NOT spawned via segments. Enters from left edge, flies right at `BIRD_FLY_SPEED=80px/s`, disappears off right, reappears after 4–10 s delay. **Will NOT spawn while any ground obstacle is visible on screen** — runway must be clear to prevent impossible simultaneous hazards. `BIRD_FLY_Y=100`, `setFlipX(false)`. Safe to pass under on ground; any jump into it triggers a restart.
+- **Arcade Physics StaticGroup** (`this.group`, public): ground obstacles (chimney, antenna, vent, bird) are created as physics static images inside this group. Physics collider wired in GameScene (`physics.add.collider(cat.sprite, obstacles.group, cb)`). No manual AABB for ground obstacles.
+- **Hitboxes via setSize/setOffset**: full visual width (`hitW = Math.round(128 × scale)`), only 20px tall at the base (`offsetY = Math.round(128 × scale − 20)`, `offsetX = 0`). Cat jump peak `catBottom ≈ 142 < obsTop=175` → always clears.
+- **Depths fixed (no dynamic)**:cat depth=30 (always in front), ground obstacles depth=20. Cat always renders on top.
+- Minimum spacing `MIN_SPACING = TILE_W (512 px)` between consecutive obstacles.
+- Grace period 1500 ms checked in both the physics collider callback (ground) and GameScene.update() (flying bird).
+- **Flying bird** (`bird_fly`) — manual AABB only (not in physics group). Enters from left, flies right at 80px/s. Spawns only when no ground obstacle is on screen. Sets `this.collision = true`; GameScene restarts on that flag.
 
 ### BackgroundManager (`src/systems/BackgroundManager.js`)
 

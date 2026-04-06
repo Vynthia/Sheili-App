@@ -98,6 +98,20 @@ export default class GameScene extends Phaser.Scene {
     // Brief grace period after a scene restart so the cat isn't immediately
     // killed by an obstacle that spawns at its position.
     this._collisionGrace = 1500; // ms — no collision checks for first 1.5 s
+
+    // ── Physics collider: cat ↔ ground obstacles ──────────────────────────
+    // The obstacles group is a StaticGroup; the cat is a dynamic physics sprite.
+    // When they overlap the callback fires — restart the scene (after grace period).
+    this.physics.add.collider(
+      this._cat.sprite,
+      this._obstacles.group,
+      () => {
+        if (this._collisionGrace > 0) return;
+        this._cat.destroy();
+        this._obstacles.destroy();
+        this.scene.restart();
+      }
+    );
   }
 
   update(_time, delta) {
