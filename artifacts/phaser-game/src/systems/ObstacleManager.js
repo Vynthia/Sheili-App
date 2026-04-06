@@ -237,9 +237,12 @@ export class ObstacleManager {
     }
 
     // Recycle obstacles that have fully scrolled off the left edge.
+    // Only destroy when the entire visual sprite is off-screen (right edge < 0),
+    // not when just the collision box exits.  Sprite origin is (0.5, 1).
     while (this._obstacles.length > 0) {
       const obs = this._obstacles[0];
-      if (obs.worldX - scrollPx + obs.obsRightOffset < 0) {
+      const halfDisplayW = obs.sprite.displayWidth / 2;
+      if (obs.worldX - scrollPx + halfDisplayW < 0) {
         obs.sprite.destroy();
         this._obstacles.shift();
       } else {
