@@ -30,8 +30,9 @@ const SCROLL_SPEED = 150; // px/s — must match PlatformManager
 const TILE_W       = 512; // px  — must match PlatformManager
 const SURFACE_Y    = 195; // px  — visual ground Y for obstacle sprites
 
-// Obstacles must render IN FRONT of the cat (cat depth = 15).
-const OBSTACLE_DEPTH = 20;
+// Obstacles must render BEHIND the cat (cat depth = 15) so the cat visually
+// runs over them, not behind them. This makes collisions unambiguous.
+const OBSTACLE_DEPTH = 10;
 
 // ---------------------------------------------------------------------------
 // Ground obstacle type definitions.
