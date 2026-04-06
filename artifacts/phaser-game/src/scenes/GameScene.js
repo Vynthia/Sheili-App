@@ -54,12 +54,19 @@ export default class GameScene extends Phaser.Scene {
     this._obstacles = new ObstacleManager(this);
 
     // Wire PlatformManager → ObstacleManager so each new segment can spawn
-    // obstacles.  The callback is set AFTER construction so the initial
-    // seed segments (spawned inside PlatformManager's constructor) are
-    // obstacle-free — giving the cat a clear landing runway.
+    // obstacles going forward.
     this._platforms.onSegmentSpawned = (seg) => {
       this._obstacles.onSegmentSpawned(seg);
     };
+
+    // The initial seed segments were built inside PlatformManager's constructor
+    // before the callback was installed.  Replay them all now so obstacles are
+    // seeded immediately — the ObstacleManager already skips the first tile of
+    // every segment, giving the cat enough clear runway on each roof.
+    const seeded = this._platforms.segments;
+    for (let i = 0; i < seeded.length; i++) {
+      this._obstacles.onSegmentSpawned(seeded[i]);
+    }
 
     // ── Player ────────────────────────────────────────────────────────────
     this._cat = new CatPlayer(this, this._platforms.group, this._platforms.surfaceY);

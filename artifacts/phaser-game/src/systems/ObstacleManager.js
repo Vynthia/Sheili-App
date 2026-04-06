@@ -20,18 +20,20 @@ const TILE_W       = 512; // px  — must match PlatformManager
 const SURFACE_Y    = 195; // px  — must match PlatformManager
 
 // Visual scale for all obstacle sprites (source 128×128).
-// 128 × 0.35 ≈ 45 px — safely under the 53 px jump-clearance limit.
-const OBSTACLE_SCALE = 0.35;
+// 128 × 0.6 ≈ 77 px display — clearly visible on the 270-px-tall canvas.
+// The hitbox heights are kept below the 53-px jump-clearance ceiling so the
+// cat can always clear any obstacle with a full jump.
+const OBSTACLE_SCALE = 0.6;
 const OBSTACLE_DEPTH = 11; // one above platform tiles (depth 10)
 
-// Per-type hit boxes (in display pixels, at OBSTACLE_SCALE).
-// hitW × hitH is narrower / shorter than the 45 × 45 display so the player
-// gets a forgiving margin on both sides and the top.
+// Per-type hit boxes (display pixels).
+// hitH ≤ 50 → obstacle top ≥ SURFACE_Y − 50 = 145 > cat peak body.bottom (142).
+// hitW is narrower than the full display width for a forgiving horizontal margin.
 const OBSTACLE_TYPES = [
-  { key: "chimney",  hitW: 28, hitH: 40 },
-  { key: "antenna",  hitW: 12, hitH: 42 },
-  { key: "vent",     hitW: 36, hitH: 26 },
-  { key: "skylight", hitW: 40, hitH: 18 },
+  { key: "chimney",  hitW: 36, hitH: 48 },
+  { key: "antenna",  hitW: 16, hitH: 50 },
+  { key: "vent",     hitW: 44, hitH: 30 },
+  { key: "skylight", hitW: 50, hitH: 20 },
 ];
 
 // Maximum obstacles placed per segment.

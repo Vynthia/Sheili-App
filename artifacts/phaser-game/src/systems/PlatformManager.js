@@ -107,6 +107,10 @@ export class PlatformManager {
     // where seg = { worldX, width, withLanding }.
     this.onSegmentSpawned = null;
 
+    // Read-only accessor used by GameScene to seed obstacles on the initial
+    // segments that were created before the callback was installed.
+    this.segments = this._segments;
+
     // ── Shared 1×1 white texture for the floor body ────────────────────────
     if (!scene.textures.exists("__ground_px")) {
       const gfx = scene.add.graphics();
