@@ -46,9 +46,11 @@ const GROUND_DEPTH = 9;
 const SCROLL_SPEED = 150; // px / s — keep in sync with BackgroundManager
 const SPAWN_AHEAD  = 1200; // px ahead of right canvas edge to keep spawned
 
-// Tile repetition per type: each tile kind repeats 1–4 times per segment.
+// Tile repetition per type.
+// roof_landing : always exactly 1 after a gap.
+// roof_left / roof_middle / roof_right : 1–2 times each.
 const REPEAT_MIN = 1;
-const REPEAT_MAX = 4;
+const REPEAT_MAX = 2;
 
 // ---------------------------------------------------------------------------
 // Gap constants
@@ -210,12 +212,11 @@ export class PlatformManager {
       withLanding = true;
     }
 
-    // ── Tile sequence: landing(1-4)? + left(1-4) + middle(1-4) + right(1-4)
+    // ── Tile sequence: landing(×1, only after gap) + left(1-2) + middle(1-2) + right(1-2)
     const tileKeys = [];
 
     if (withLanding) {
-      const n = randInt(REPEAT_MIN, REPEAT_MAX);
-      for (let i = 0; i < n; i++) tileKeys.push("roof_landing");
+      tileKeys.push("roof_landing"); // always exactly one landing tile after a gap
     }
 
     const leftN = randInt(REPEAT_MIN, REPEAT_MAX);
