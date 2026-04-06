@@ -196,8 +196,9 @@ export class ObstacleManager {
     // ── Ground obstacles ──────────────────────────────────────────────────
     // Airborne bypass: skip Y-collision while the cat is in the air.
     // Any jump clears any ground obstacle — the cat can only be killed by
-    // running directly into the base while standing on the surface.
-    const catOnGround = catBottom >= SURFACE_Y - 3;
+    // running directly into the base while standing firmly on the surface.
+    // catBottom must be AT the surface (within 1px tolerance) to be "on ground".
+    const catOnGround = catBottom >= SURFACE_Y - 1;
 
     for (const obs of this._obstacles) {
       const screenX = obs.worldX - scrollPx;
