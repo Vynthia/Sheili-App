@@ -61,14 +61,21 @@ Plain JS Phaser 3 browser game — no React, no UI framework. Served via Vite.
 
 ### CatcherEnemy (`src/systems/CatcherEnemy.js`)
 
-The primary game-over system. A cat-catcher chases the player from the left.
+The primary game-over system. A cat-catcher chases the player from the left with physics and jump ability.
 
-- **State machine**: `'chasing'` → `'catching'` → `'sitting'` → `'done'`
-- **Distance**: starts 360 px behind the cat (off-screen). Closes at 8 px/s naturally. Each obstacle collision reduces it by 80 px.
-- **Catch sequence**: when distance ≤ 0, the catcher snaps to the cat's X, plays the 2-frame `catcher_catch` animation for 900 ms, then the `sitting_cat` image appears for 1300 ms, then `scene.restart()`.
-- **Obstacle integration**: obstacle hits no longer cause instant restart — they call `catcher.onObstacleHit()` and start a 1500 ms per-hit invincibility window, flashing the cat sprite as feedback.
-- **Assets**: `public/assets/enemy/catcher_run.png` (4 × 128×128 spritesheet), `public/assets/enemy/catcher_catch.png` (2 × 128×128 spritesheet), `public/assets/cat/sitting_cat.png` (128×128 single frame).
-- **Depths**: chasing=15 (behind cat=20), catching=25 (in front), sitting_cat=22.
+- **State machine**: `'chasing'` → `'catching'` → `'done'`
+- **Progressive distances**: `DISTANCE_STAGES = [85, 50, 18]` px behind the cat. After each hit the catcher resets to the next closer stage (not the initial distance).
+  - Stage 0 (start): x=−5, ~40% visible at left edge — "someone's back there"
+  - Stage 1 (after 1st hit): x=30, ~95% visible — "getting close!"
+  - Stage 2 (after 2nd hit): x=62, overlapping cat — "RIGHT THERE!"
+  - 3rd hit → final catch → restart
+- **Natural creep**: 3 px/s slow approach between hits so tension builds passively.
+- **Y bobbing**: ±3 px sine wave (`BOB_AMPLITUDE=3`, `BOB_SPEED=0.0025`) so the catcher feels alive, not rigidly locked to SURFACE_Y.
+- **Physics + jump**: full arcade physics body. Catcher collides with platforms (one-way, down-only) and can jump via Space / pointer — same input as cat.
+- **Danger scalebar (HUD)**: 3 segments at top-left (x=10, y=10). Each segment is 18×7 px with 3 px gap. Empty=`0x222233`, hit-1=`0xFF8800`, hit-2=`0xFF3300`, hit-3=`0xFF0000`.
+- **Obstacle integration**: obstacle hits call `catcher.onObstacleHit()` with a 1500 ms per-hit cooldown. The cat is hidden during each lunge and restored if it's not the final hit.
+- **Assets**: `public/assets/enemy/catcher_run.png` (4 × 128×128 spritesheet), `public/assets/enemy/catcher_catch.png` (2 × 128×128 spritesheet).
+- **Depths**: chasing=15 (behind cat=20), catching=25 (in front of cat).
 
 ### ObstacleManager (`src/systems/ObstacleManager.js`)
 
