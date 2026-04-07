@@ -1,18 +1,15 @@
 // ---------------------------------------------------------------------------
 // CatcherEnemy — the cat-catcher who chases the player.
 //
-// The catcher is always visible on the left edge of the screen.  It slowly
-// closes the gap on its own, but bump events are what drive the drama:
-//   • 1st obstacle hit  → catcher lunges to the cat, plays catcher_catch,
-//                          then backs off to the initial distance and resumes
-//                          chasing (cat escaped the net this time).
-//   • 2nd obstacle hit  → catcher lunges again, plays catcher_catch,
-//                          then the scene restarts.
+// The catcher is always visible on the left edge of the screen.  It has full
+// physics and jump ability (keyboard Space / pointer click), but moves
+// slower than the cat naturally.  The cat must hit obstacles 3 times before
+// the catcher catches it.
 //
 // State machine:
-//   'chasing'    → natural slow catch-up; waiting for onObstacleHit()
+//   'chasing'    → waiting for onObstacleHit() calls; can jump
 //   'catching'   → catcher_catch animation playing (CATCH_ANIM_MS)
-//   'done'       → signals GameScene to restart (only after 2nd hit)
+//   'done'       → signals GameScene to restart (only after 3rd hit)
 // ---------------------------------------------------------------------------
 
 // Cat's fixed screen X (must match CatPlayer.CAT_X).
@@ -25,12 +22,18 @@ const SURFACE_Y      = 195;
 const CATCHER_SCALE  = 0.5;
 
 // Starting gap behind the cat (px).
-// At x = CAT_X − INITIAL_DISTANCE the sprite is partially visible at the
-// left edge of the 480-px canvas, giving a clear "chasing" read.
 const INITIAL_DISTANCE = 70;
 
-// Natural catch-up rate (px / second).  Very slow — the bumps are what matter.
-const CATCHUP_SPEED    = 3;
+// Natural catch-up rate (px / second).  Must be slower than scroll speed.
+// (The world scrolls at 150 px/s; catcher moves at ~70 px/s relative to world,
+//  which is ~80 px/s slower than the cat's pin, keeping it perpetually behind.)
+const CATCHUP_SPEED    = 70;
+
+// Jump impulse (negative = upward).  Same peak height as cat for fairness.
+const JUMP_VEL = -380;
+
+// Local gravity (same as cat).
+const GRAVITY_Y = 900;
 
 // Depth while chasing: behind cat (cat = 20).
 const CHASE_DEPTH      = 15;
@@ -41,6 +44,18 @@ const CATCH_DEPTH      = 25;
 // How long (ms) the catcher_catch animation plays per lunge.
 const CATCH_ANIM_MS    = 900;
 
+// How many obstacle hits before the catcher catches the cat.
+const HITS_TO_CATCH    = 3;
+
+// Hitbox dimensions (source 128×128, display 64×64).
+const BODY_WIDTH  = 28;
+const BODY_HEIGHT = 40;
+const BODY_OFFSET_X = 22;
+const BODY_OFFSET_Y = 76;
+
+// Coyote time (ms) — same as cat so timing feels fair.
+const COYOTE_MS = 150;
+
 // ---------------------------------------------------------------------------
 
 export class CatcherEnemy {
@@ -50,8 +65,13 @@ export class CatcherEnemy {
     this._state    = 'chasing';
     this._distance = INITIAL_DISTANCE;
     this._timer    = 0;
-    this._hitCount = 0;      // 0 → 1 → 2; at 2 the scene restarts
-    this._catSprite = null;  // cached each frame from update()
+    this._hitCount = 0;      // Incremented on each obstacle hit; at HITS_TO_CATCH triggers restart
+    this._catSprite = null;  // Cached each frame from update()
+
+    // ── State machine (jumping) ────────────────────────────────────────────
+    this._jumpState = 'running';
+    this._coyoteMs = 0;
+    this._jumpRequested = false;
 
     // ── Animations (registered once per scene lifecycle) ──────────────────
     if (!scene.anims.exists('catcher-run')) {
@@ -71,15 +91,40 @@ export class CatcherEnemy {
       });
     }
 
-    // ── Catcher sprite ─────────────────────────────────────────────────────
+    // ── Physics sprite ─────────────────────────────────────────────────────
     // Origin (0.5, 1): anchor at bottom-centre, feet on the surface.
-    // At INITIAL_DISTANCE = 70 the centre is at x = 10; right half of the
-    // sprite shows on screen, giving a clear "chaser at the edge" read.
-    this._sprite = scene.add.sprite(CAT_X - INITIAL_DISTANCE, SURFACE_Y, 'catcher_run');
+    const startX = CAT_X - INITIAL_DISTANCE;
+    this._sprite = scene.physics.add.sprite(startX, SURFACE_Y, 'catcher_run');
     this._sprite.setOrigin(0.5, 1);
     this._sprite.setScale(CATCHER_SCALE);
     this._sprite.setDepth(CHASE_DEPTH);
     this._sprite.play('catcher-run');
+
+    // ── Physics body ───────────────────────────────────────────────────────
+    const body = this._sprite.body;
+    body.setGravityY(GRAVITY_Y);
+    body.setCollideWorldBounds(true);
+
+    // Hitbox — same as cat for fairness.
+    body.setSize(BODY_WIDTH, BODY_HEIGHT, false);
+    body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
+
+    // ── Collider (one-way — blocks from above only) ────────────────────────
+    // Catcher collides with platforms the same way the cat does.
+    scene.physics.add.collider(
+      this._sprite,
+      scene._platforms.group,
+      null,
+      (catcher, _platform) => catcher.body.velocity.y >= 0,
+    );
+
+    // ── Input ──────────────────────────────────────────────────────────────
+    this._keys = scene.input.keyboard.addKeys({
+      space: Phaser.Input.Keyboard.KeyCodes.SPACE,
+    });
+
+    this._onPointerDown = () => { this._jumpRequested = true; };
+    scene.input.on('pointerdown', this._onPointerDown);
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -89,11 +134,10 @@ export class CatcherEnemy {
 
   /**
    * Call this whenever the cat collides with an obstacle.
-   * Triggers the catch lunge on every bump.
-   * The 2nd call causes the scene to restart after the animation.
+   * Triggers the catch lunge; the Nth call (where N = HITS_TO_CATCH) causes restart.
    */
   onObstacleHit() {
-    if (this._state !== 'chasing') return; // ignore while animation is playing
+    if (this._state !== 'chasing') return; // Ignore while animation is playing
     this._hitCount++;
     this._beginCatch();
   }
@@ -106,16 +150,69 @@ export class CatcherEnemy {
    * @returns {boolean}  true when the scene should restart
    */
   update(delta, catSprite) {
-    // Cache the sprite so onObstacleHit() can access it without an argument.
+    // Cache the sprite so onObstacleHit() can access it.
     this._catSprite = catSprite;
 
     switch (this._state) {
 
       // ── Chasing ───────────────────────────────────────────────────────────
       case 'chasing': {
-        // Slowly close the gap.
+        const body = this._sprite.body;
+        const onGround = body.blocked.down;
+
+        // Pin catcher horizontally — close the gap at a fixed rate.
+        // The world scrolls left at 150 px/s; catcher moves at 70 px/s,
+        // making its screen X advance at 80 px/s (slower than cat's static 80).
         this._distance = Math.max(0, this._distance - CATCHUP_SPEED * (delta / 1000));
         this._sprite.setX(CAT_X - this._distance);
+
+        // Re-apply hitbox every frame (animation may reset it).
+        body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
+
+        // ── Jump logic ────────────────────────────────────────────────────
+        if (this._jumpState === 'running') {
+          if (!onGround) {
+            this._jumpState = 'airborne';
+            this._coyoteMs = COYOTE_MS;
+            this._sprite.anims.stop();
+            this._sprite.setFrame(3); // descent frame
+            body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
+          }
+        }
+
+        if (this._jumpState === 'airborne') {
+          // Drive frame from velocity.
+          this._sprite.setFrame(body.velocity.y < 0 ? 2 : 3);
+          body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
+
+          // Tick coyote countdown.
+          if (this._coyoteMs > 0) {
+            this._coyoteMs = Math.max(0, this._coyoteMs - delta);
+          }
+
+          // Landing: return to run animation.
+          if (onGround) {
+            this._jumpState = 'running';
+            this._coyoteMs = 0;
+            this._sprite.play('catcher-run');
+            body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
+          }
+        }
+
+        // ── Jump input ────────────────────────────────────────────────────
+        const canJump = onGround || this._coyoteMs > 0;
+        const keyPressed = Phaser.Input.Keyboard.JustDown(this._keys.space);
+
+        if (canJump && (keyPressed || this._jumpRequested)) {
+          body.setVelocityY(JUMP_VEL);
+          this._jumpState = 'airborne';
+          this._coyoteMs = 0;
+          this._sprite.anims.stop();
+          this._sprite.setFrame(2); // ascent frame
+          body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
+        }
+
+        this._jumpRequested = false;
         break;
       }
 
@@ -136,8 +233,9 @@ export class CatcherEnemy {
     return false;
   }
 
-  /** Clean up scene objects. */
+  /** Clean up scene objects and listeners. */
   destroy() {
+    this._scene.input.off('pointerdown', this._onPointerDown);
     this._sprite.destroy();
   }
 
@@ -157,17 +255,19 @@ export class CatcherEnemy {
   }
 
   _onCatchComplete() {
-    if (this._hitCount >= 2) {
-      // Second hit — the cat is fully caught.  Signal restart.
+    if (this._hitCount >= HITS_TO_CATCH) {
+      // Reached hit threshold — the cat is fully caught.  Signal restart.
       this._state = 'done';
     } else {
-      // First hit — cat escapes; catcher backs off to initial distance.
+      // Still escaping — catcher backs off to initial distance and resumes.
       this._distance = INITIAL_DISTANCE;
       this._sprite.setX(CAT_X - INITIAL_DISTANCE);
       this._sprite.setDepth(CHASE_DEPTH);
       this._sprite.play('catcher-run');
       this._state = 'chasing';
       this._timer = 0;
+      this._jumpState = 'running';
+      this._coyoteMs = 0;
 
       // Restore the cat.
       if (this._catSprite) this._catSprite.setVisible(true);
