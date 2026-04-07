@@ -1,66 +1,59 @@
 // ---------------------------------------------------------------------------
 // CatcherEnemy — the cat-catcher who chases the player.
 //
-// The catcher appears behind the cat and slowly closes the gap.
-// Each obstacle the cat hits gives the catcher a significant boost.
-// When the catcher reaches the cat a catch animation plays, then the
-// sitting_cat sprite appears under the landing net, and the scene restarts.
+// The catcher is always visible on the left edge of the screen.  It slowly
+// closes the gap on its own, but bump events are what drive the drama:
+//   • 1st obstacle hit  → catcher lunges to the cat, plays catcher_catch,
+//                          then backs off to the initial distance and resumes
+//                          chasing (cat escaped the net this time).
+//   • 2nd obstacle hit  → catcher lunges again, plays catcher_catch,
+//                          then the scene restarts.
 //
 // State machine:
-//   'chasing'  → natural catch-up + collision penalties
-//   'catching' → catch animation playing (CATCH_ANIM_MS)
-//   'sitting'  → sitting_cat visible, waiting (SITTING_MS)
-//   'done'     → signals GameScene to restart
+//   'chasing'    → natural slow catch-up; waiting for onObstacleHit()
+//   'catching'   → catcher_catch animation playing (CATCH_ANIM_MS)
+//   'done'       → signals GameScene to restart (only after 2nd hit)
 // ---------------------------------------------------------------------------
 
-// Cat's fixed screen X position (must match CatPlayer.CAT_X).
-const CAT_X        = 80;
+// Cat's fixed screen X (must match CatPlayer.CAT_X).
+const CAT_X          = 80;
 
-// Surface Y (cat feet / catcher feet, must match SURFACE_Y in ObstacleManager).
-const SURFACE_Y    = 195;
+// Surface Y for feet-anchor (must match SURFACE_Y in ObstacleManager).
+const SURFACE_Y      = 195;
 
-// Catcher display scale (source sprites are 128 × 128 px).
-const CATCHER_SCALE = 0.5;
+// Catcher display scale (source sprites are 128 × 128 px → 64 × 64 display).
+const CATCHER_SCALE  = 0.5;
 
-// How far behind the cat (px) the catcher starts.
-// At CATCHUP_SPEED px/s this gives ~45 s of clean runway with no mistakes.
-const INITIAL_DISTANCE   = 360;
+// Starting gap behind the cat (px).
+// At x = CAT_X − INITIAL_DISTANCE the sprite is partially visible at the
+// left edge of the 480-px canvas, giving a clear "chasing" read.
+const INITIAL_DISTANCE = 70;
 
-// Natural catch-up rate (px per second, always active).
-const CATCHUP_SPEED      = 8;
+// Natural catch-up rate (px / second).  Very slow — the bumps are what matter.
+const CATCHUP_SPEED    = 3;
 
-// Additional distance gained each time the cat collides with an obstacle.
-// Four clean jumps worth of debt — keeps the threat escalating.
-const COLLISION_PENALTY  = 80;
+// Depth while chasing: behind cat (cat = 20).
+const CHASE_DEPTH      = 15;
 
-// Depth while chasing: behind the cat (cat = 20).
-const CHASE_DEPTH   = 15;
+// Depth during catch animation: in front of cat so the net overlaps it.
+const CATCH_DEPTH      = 25;
 
-// Depth during catch: in front of the cat so the net overlaps it.
-const CATCH_DEPTH   = 25;
-
-// Depth of the sitting-cat image.
-const SITTING_DEPTH = 22;
-
-// How long (ms) the catch animation plays before the sitting_cat appears.
-const CATCH_ANIM_MS = 900;
-
-// How long (ms) the sitting_cat is shown before the scene restarts.
-const SITTING_MS    = 1300;
+// How long (ms) the catcher_catch animation plays per lunge.
+const CATCH_ANIM_MS    = 900;
 
 // ---------------------------------------------------------------------------
 
 export class CatcherEnemy {
-  /**
-   * @param {Phaser.Scene} scene
-   */
+  /** @param {Phaser.Scene} scene */
   constructor(scene) {
     this._scene    = scene;
     this._state    = 'chasing';
     this._distance = INITIAL_DISTANCE;
     this._timer    = 0;
+    this._hitCount = 0;      // 0 → 1 → 2; at 2 the scene restarts
+    this._catSprite = null;  // cached each frame from update()
 
-    // ── Animations (register once per scene lifecycle) ─────────────────────
+    // ── Animations (registered once per scene lifecycle) ──────────────────
     if (!scene.anims.exists('catcher-run')) {
       scene.anims.create({
         key:       'catcher-run',
@@ -79,90 +72,63 @@ export class CatcherEnemy {
     }
 
     // ── Catcher sprite ─────────────────────────────────────────────────────
-    // Origin (0.5, 1): anchor at bottom-centre, same as cat.
-    const startX     = CAT_X - INITIAL_DISTANCE;
-    this._sprite     = scene.add.sprite(startX, SURFACE_Y, 'catcher_run');
+    // Origin (0.5, 1): anchor at bottom-centre, feet on the surface.
+    // At INITIAL_DISTANCE = 70 the centre is at x = 10; right half of the
+    // sprite shows on screen, giving a clear "chaser at the edge" read.
+    this._sprite = scene.add.sprite(CAT_X - INITIAL_DISTANCE, SURFACE_Y, 'catcher_run');
     this._sprite.setOrigin(0.5, 1);
     this._sprite.setScale(CATCHER_SCALE);
     this._sprite.setDepth(CHASE_DEPTH);
     this._sprite.play('catcher-run');
-
-    // ── Sitting-cat image (hidden until catch completes) ──────────────────
-    this._sittingCat = scene.add.image(CAT_X, SURFACE_Y, 'sitting_cat');
-    this._sittingCat.setOrigin(0.5, 1);
-    this._sittingCat.setScale(CATCHER_SCALE);
-    this._sittingCat.setDepth(SITTING_DEPTH);
-    this._sittingCat.setVisible(false);
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  /**
-   * The current gap between the catcher and the cat (px).
-   * Zero or below triggers the catch sequence.
-   */
+  /** Current screen-space gap between catcher centre and cat centre (px). */
   get distance() { return Math.max(0, this._distance); }
 
   /**
    * Call this whenever the cat collides with an obstacle.
-   * Boosts the catcher forward by COLLISION_PENALTY px.
+   * Triggers the catch lunge on every bump.
+   * The 2nd call causes the scene to restart after the animation.
    */
   onObstacleHit() {
-    if (this._state !== 'chasing') return;
-    this._distance = Math.max(0, this._distance - COLLISION_PENALTY);
+    if (this._state !== 'chasing') return; // ignore while animation is playing
+    this._hitCount++;
+    this._beginCatch();
   }
 
   /**
    * Update every frame.
    *
-   * @param {number}                   delta      ms since last frame
-   * @param {Phaser.GameObjects.Sprite} catSprite  used to hide the cat on catch
+   * @param {number}                    delta      ms since last frame
+   * @param {Phaser.GameObjects.Sprite} catSprite  cat sprite reference
    * @returns {boolean}  true when the scene should restart
    */
   update(delta, catSprite) {
+    // Cache the sprite so onObstacleHit() can access it without an argument.
+    this._catSprite = catSprite;
+
     switch (this._state) {
 
-      // ── Chasing ──────────────────────────────────────────────────────────
+      // ── Chasing ───────────────────────────────────────────────────────────
       case 'chasing': {
-        // Close the distance naturally.
-        this._distance -= CATCHUP_SPEED * (delta / 1000);
-
-        // Clamp at zero so sprite doesn't overshoot.
-        if (this._distance < 0) this._distance = 0;
-
-        // Reposition the catcher sprite.
+        // Slowly close the gap.
+        this._distance = Math.max(0, this._distance - CATCHUP_SPEED * (delta / 1000));
         this._sprite.setX(CAT_X - this._distance);
-
-        // Check catch condition.
-        if (this._distance <= 0) {
-          this._beginCatch(catSprite);
-        }
         break;
       }
 
-      // ── Catch animation playing ───────────────────────────────────────────
+      // ── Catch animation playing ────────────────────────────────────────────
       case 'catching': {
         this._timer += delta;
         if (this._timer >= CATCH_ANIM_MS) {
-          // Net has landed — reveal the sitting cat.
-          this._sittingCat.setVisible(true);
-          this._state = 'sitting';
-          this._timer = 0;
+          this._onCatchComplete();
         }
         break;
       }
 
-      // ── Sitting cat visible ───────────────────────────────────────────────
-      case 'sitting': {
-        this._timer += delta;
-        if (this._timer >= SITTING_MS) {
-          this._state = 'done';
-          return true; // signal GameScene to restart
-        }
-        break;
-      }
-
-      // ── Done ─────────────────────────────────────────────────────────────
+      // ── Done ──────────────────────────────────────────────────────────────
       case 'done':
         return true;
     }
@@ -170,24 +136,41 @@ export class CatcherEnemy {
     return false;
   }
 
-  /** Clean up when the scene shuts down. */
+  /** Clean up scene objects. */
   destroy() {
     this._sprite.destroy();
-    this._sittingCat.destroy();
   }
 
   // ── Private ───────────────────────────────────────────────────────────────
 
-  _beginCatch(catSprite) {
+  _beginCatch() {
     this._state = 'catching';
     this._timer = 0;
 
-    // Move catcher to the cat's exact position and bring it to front.
+    // Lunge to the cat's position and flip to front depth.
     this._sprite.setX(CAT_X + 10);
     this._sprite.setDepth(CATCH_DEPTH);
     this._sprite.play('catcher-catch');
 
-    // Hide the running cat.
-    catSprite.setVisible(false);
+    // Hide the running cat during the lunge.
+    if (this._catSprite) this._catSprite.setVisible(false);
+  }
+
+  _onCatchComplete() {
+    if (this._hitCount >= 2) {
+      // Second hit — the cat is fully caught.  Signal restart.
+      this._state = 'done';
+    } else {
+      // First hit — cat escapes; catcher backs off to initial distance.
+      this._distance = INITIAL_DISTANCE;
+      this._sprite.setX(CAT_X - INITIAL_DISTANCE);
+      this._sprite.setDepth(CHASE_DEPTH);
+      this._sprite.play('catcher-run');
+      this._state = 'chasing';
+      this._timer = 0;
+
+      // Restore the cat.
+      if (this._catSprite) this._catSprite.setVisible(true);
+    }
   }
 }

@@ -42,8 +42,7 @@ export default class GameScene extends Phaser.Scene {
     });
 
     // ── Cat ────────────────────────────────────────────────────────────
-    this.load.image("cat_start",   "assets/cat/cat_start.png");
-    this.load.image("sitting_cat", "assets/cat/sitting_cat.png");
+    this.load.image("cat_start", "assets/cat/cat_start.png");
     this.load.spritesheet("cat_run", "assets/cat/cat_run.png", {
       frameWidth:  128,
       frameHeight: 128,
@@ -155,30 +154,24 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Only process a new hit when both grace periods have expired.
+    // The per-hit cooldown prevents the same collision from firing every frame
+    // while the cat is still overlapping an obstacle body.
     if (
       this._collisionGrace <= 0 &&
       this._hitCooldown    <= 0 &&
       this._obstacles.collision
     ) {
-      // Clear the flag so it doesn't fire again next frame.
+      // Clear the flag immediately so it doesn't re-fire next frame.
       this._obstacles.collision = false;
 
-      // Penalise: catcher gains ground.
+      // Trigger the catcher lunge.  The catcher hides/shows the cat sprite
+      // itself and manages its own state machine (ignores calls while already
+      // in a catching animation, so no additional guard needed here).
       this._catcher.onObstacleHit();
 
-      // Start per-hit cooldown (1.5 s invincibility window).
+      // Block further hits for 1.5 s — gives the 900 ms catch anim time to
+      // complete and the cat to reappear before another collision can register.
       this._hitCooldown = 1500;
-
-      // Visual feedback: flash the cat sprite so the player knows they were hit.
-      this.tweens.add({
-        targets:    this._cat.sprite,
-        alpha:      0.15,
-        duration:   80,
-        yoyo:       true,
-        repeat:     6,
-        ease:       'Linear',
-        onComplete: () => { this._cat.sprite.setAlpha(1); },
-      });
     }
   }
 }
