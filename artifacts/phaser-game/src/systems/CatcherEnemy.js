@@ -134,12 +134,21 @@ export class CatcherEnemy {
 
   /**
    * Call this whenever the cat collides with an obstacle.
-   * Triggers the catch lunge; the Nth call (where N = HITS_TO_CATCH) causes restart.
+   * Bumps 1–2: reduce distance (catcher moves closer).
+   * Bump 3: trigger the catch animation.
    */
   onObstacleHit() {
     if (this._state !== 'chasing') return; // Ignore while animation is playing
     this._hitCount++;
-    this._beginCatch();
+
+    if (this._hitCount < HITS_TO_CATCH) {
+      // Bumps 1–2: reduce the gap so catcher creeps forward.
+      // Each bump closes the gap by 50 px.
+      this._distance = Math.max(0, this._distance - 50);
+    } else {
+      // Bump 3: trigger the catch animation.
+      this._beginCatch();
+    }
   }
 
   /**
@@ -255,22 +264,8 @@ export class CatcherEnemy {
   }
 
   _onCatchComplete() {
-    if (this._hitCount >= HITS_TO_CATCH) {
-      // Reached hit threshold — the cat is fully caught.  Signal restart.
-      this._state = 'done';
-    } else {
-      // Still escaping — catcher backs off to initial distance and resumes.
-      this._distance = INITIAL_DISTANCE;
-      this._sprite.setX(CAT_X - INITIAL_DISTANCE);
-      this._sprite.setDepth(CHASE_DEPTH);
-      this._sprite.play('catcher-run');
-      this._state = 'chasing';
-      this._timer = 0;
-      this._jumpState = 'running';
-      this._coyoteMs = 0;
-
-      // Restore the cat.
-      if (this._catSprite) this._catSprite.setVisible(true);
-    }
+    // The catch animation finished. The cat is caught.
+    // Stay in 'done' state — the cat remains hidden, and GameScene will restart.
+    this._state = 'done';
   }
 }
