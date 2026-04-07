@@ -59,6 +59,17 @@ Plain JS Phaser 3 browser game — no React, no UI framework. Served via Vite.
 - Canvas size: 480 × 270 (change `GAME_WIDTH` / `GAME_HEIGHT` in `main.js`)
 - Assets: `public/assets/bg/` (backgrounds), `public/assets/` (sprites)
 
+### CatcherEnemy (`src/systems/CatcherEnemy.js`)
+
+The primary game-over system. A cat-catcher chases the player from the left.
+
+- **State machine**: `'chasing'` → `'catching'` → `'sitting'` → `'done'`
+- **Distance**: starts 360 px behind the cat (off-screen). Closes at 8 px/s naturally. Each obstacle collision reduces it by 80 px.
+- **Catch sequence**: when distance ≤ 0, the catcher snaps to the cat's X, plays the 2-frame `catcher_catch` animation for 900 ms, then the `sitting_cat` image appears for 1300 ms, then `scene.restart()`.
+- **Obstacle integration**: obstacle hits no longer cause instant restart — they call `catcher.onObstacleHit()` and start a 1500 ms per-hit invincibility window, flashing the cat sprite as feedback.
+- **Assets**: `public/assets/enemy/catcher_run.png` (4 × 128×128 spritesheet), `public/assets/enemy/catcher_catch.png` (2 × 128×128 spritesheet), `public/assets/cat/sitting_cat.png` (128×128 single frame).
+- **Depths**: chasing=15 (behind cat=20), catching=25 (in front), sitting_cat=22.
+
 ### ObstacleManager (`src/systems/ObstacleManager.js`)
 
 Spawns and scrolls rooftop obstacles (chimney, antenna, vent, skylight) on valid platform surfaces.

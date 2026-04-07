@@ -3,6 +3,7 @@ import { BackgroundManager } from "../systems/BackgroundManager.js";
 import { PlatformManager }   from "../systems/PlatformManager.js";
 import { CatPlayer }         from "../systems/CatPlayer.js";
 import { ObstacleManager }   from "../systems/ObstacleManager.js";
+import { CatcherEnemy }      from "../systems/CatcherEnemy.js";
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -41,8 +42,21 @@ export default class GameScene extends Phaser.Scene {
     });
 
     // ── Cat ────────────────────────────────────────────────────────────
-    this.load.image("cat_start", "assets/cat/cat_start.png");
+    this.load.image("cat_start",   "assets/cat/cat_start.png");
+    this.load.image("sitting_cat", "assets/cat/sitting_cat.png");
     this.load.spritesheet("cat_run", "assets/cat/cat_run.png", {
+      frameWidth:  128,
+      frameHeight: 128,
+    });
+
+    // ── Catcher enemy ──────────────────────────────────────────────────
+    // catcher_run.png  — 512×128, 4 frames (128×128 each)
+    // catcher_catch.png — 256×128, 2 frames (128×128 each)
+    this.load.spritesheet("catcher_run", "assets/enemy/catcher_run.png", {
+      frameWidth:  128,
+      frameHeight: 128,
+    });
+    this.load.spritesheet("catcher_catch", "assets/enemy/catcher_catch.png", {
       frameWidth:  128,
       frameHeight: 128,
     });
@@ -57,6 +71,9 @@ export default class GameScene extends Phaser.Scene {
     // ── Platforms ─────────────────────────────────────────────────────────
     this._platforms = new PlatformManager(this);
 
+    // ── Catcher (created before cat so it renders behind) ─────────────────
+    this._catcher = new CatcherEnemy(this);
+
     // ── Obstacles ─────────────────────────────────────────────────────────
     this._obstacles = new ObstacleManager(this);
 
@@ -66,10 +83,7 @@ export default class GameScene extends Phaser.Scene {
       this._obstacles.onSegmentSpawned(seg);
     };
 
-    // The initial seed segments were built inside PlatformManager's constructor
-    // before the callback was installed.  Replay them all now so obstacles are
-    // seeded immediately — the ObstacleManager already skips the first tile of
-    // every segment, giving the cat enough clear runway on each roof.
+    // Replay seed segments so obstacles appear immediately.
     const seeded = this._platforms.segments;
     for (let i = 0; i < seeded.length; i++) {
       this._obstacles.onSegmentSpawned(seeded[i]);
@@ -79,7 +93,7 @@ export default class GameScene extends Phaser.Scene {
     this._cat = new CatPlayer(this, this._platforms.group, this._platforms.surfaceY);
 
     // ── Animations ────────────────────────────────────────────────────────
-    // Flying bird: 2-frame loop from the 256×128 spritesheet.
+    // Flying bird: 2-frame loop.
     if (!this.anims.exists("bird_fly")) {
       this.anims.create({
         key:       "bird_fly",
@@ -94,10 +108,13 @@ export default class GameScene extends Phaser.Scene {
     this._cycleElapsed = 0;
     this._bg.setCycleProgress(0);
 
-    // ── Collision cooldown ────────────────────────────────────────────────
-    // Brief grace period after a scene restart so the cat isn't immediately
-    // killed by an obstacle that spawns at its position.
-    this._collisionGrace = 1500; // ms — no collision checks for first 1.5 s
+    // ── Collision / hit state ─────────────────────────────────────────────
+    // Grace period after spawn before any collisions register.
+    this._collisionGrace = 1500; // ms
+
+    // Per-hit invincibility window so the cat can't be penalised on every
+    // frame of the same collision.  Reset when a new hit is accepted.
+    this._hitCooldown = 0; // ms
   }
 
   update(_time, delta) {
@@ -117,15 +134,51 @@ export default class GameScene extends Phaser.Scene {
     // ── Player ────────────────────────────────────────────────────────────
     this._cat.update(delta);
 
-    // ── Collision detection ────────────────────────────────────────────────
-    // Tick down the grace period; only check collisions once it expires.
-    if (this._collisionGrace > 0) {
-      this._collisionGrace -= delta;
-    } else if (this._obstacles.collision) {
-      // Cat hit an obstacle — clean up listeners and restart.
+    // ── Catcher ───────────────────────────────────────────────────────────
+    // update() returns true when the catch sequence is fully complete.
+    const catchDone = this._catcher.update(delta, this._cat.sprite);
+    if (catchDone) {
       this._cat.destroy();
+      this._catcher.destroy();
       this._obstacles.destroy();
       this.scene.restart();
+      return;
+    }
+
+    // ── Collision detection ────────────────────────────────────────────────
+    // Tick timers.
+    if (this._collisionGrace > 0) {
+      this._collisionGrace -= delta;
+    }
+    if (this._hitCooldown > 0) {
+      this._hitCooldown -= delta;
+    }
+
+    // Only process a new hit when both grace periods have expired.
+    if (
+      this._collisionGrace <= 0 &&
+      this._hitCooldown    <= 0 &&
+      this._obstacles.collision
+    ) {
+      // Clear the flag so it doesn't fire again next frame.
+      this._obstacles.collision = false;
+
+      // Penalise: catcher gains ground.
+      this._catcher.onObstacleHit();
+
+      // Start per-hit cooldown (1.5 s invincibility window).
+      this._hitCooldown = 1500;
+
+      // Visual feedback: flash the cat sprite so the player knows they were hit.
+      this.tweens.add({
+        targets:    this._cat.sprite,
+        alpha:      0.15,
+        duration:   80,
+        yoyo:       true,
+        repeat:     6,
+        ease:       'Linear',
+        onComplete: () => { this._cat.sprite.setAlpha(1); },
+      });
     }
   }
 }
