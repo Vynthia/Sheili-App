@@ -1,0 +1,374 @@
+IMPORTANT: Please refactor and fix the chaser (enemy / catcher) behavior, animation logic, and collision system in my game EXACTLY according to the following specification. Do NOT approximate, simplify, or replace this with a workaround. Implement it precisely.
+
+==================================================
+CORE GOAL
+==================================================
+
+Fix all bugs related to:
+- chaser movement jittering / horizontal snapping
+- physics mismatch between the cat and the catcher
+- incorrect spawn / ground placement at game start
+- broken catch logic
+- missing minimum-distance enforcement
+- incorrect catcher animation handling
+
+The catcher must behave like a stable, physically correct chasing enemy that uses proper movement, jumping, landing, and animation states.
+
+==================================================
+1. CATCHER MOVEMENT: REMOVE JITTER / TELEPORTING
+==================================================
+
+The catcher currently jitters horizontally, shifts left/right unexpectedly, and sometimes moves forward in a visually broken way.
+
+REQUIREMENTS:
+- The catcher must move smoothly and consistently to the right
+- No horizontal jitter
+- No shaking
+- No left-right snapping
+- No random micro-teleports
+- No unstable forward movement
+
+STRICT RULES:
+- catcher.x must be updated in ONE clean place only
+- Remove all competing or duplicated x-position updates
+- Remove any logic that causes snapping between two target positions
+- Do not let collision correction push the catcher back and forth horizontally
+- Use a clean chase / follow rule with controlled movement
+
+If needed, centralize the movement into one update function such as:
+- updateCatcher()
+or
+- updateEnemyMovement()
+
+==================================================
+2. SAME PHYSICS CAPABILITIES AS THE CAT
+==================================================
+
+The catcher must have the same movement capabilities as the cat.
+
+That means the catcher must use the same fundamental physics system as the cat for:
+- gravity
+- vertical velocity
+- jumping
+- falling
+- landing
+- grounded state
+- ground collision
+- platform collision
+
+IMPORTANT:
+The catcher should not be a fake object that is just visually moved.
+It must behave like a real character using the same physics/controller rules as the cat.
+
+If possible, reuse the same character controller base/class/system as the cat, but allow separate tuning values such as:
+- run speed
+- follow speed
+- target distance
+
+==================================================
+3. FIX THE INITIAL SPAWN BUG
+==================================================
+
+At the very beginning of the game, the catcher slowly falls through the floor / ground of the canvas. This must be fixed.
+
+REQUIREMENTS:
+- The catcher must spawn directly on valid ground or platform height
+- If the catcher starts on the ground, it must immediately be grounded
+- No sinking into the floor
+- No slowly falling through the floor
+- No delayed ground collision activation
+- No incorrect initial Y offset
+
+Please verify:
+- initial spawnY
+- ground collision registration
+- initial isGrounded state
+- initial velocityY value
+
+Expected result:
+At game start, the catcher is placed correctly on the floor and behaves normally from frame 1.
+
+==================================================
+4. ANIMATION SETUP FOR THE CATCHER
+==================================================
+
+Use the correct sprite sheets for the catcher.
+
+RUN ANIMATION:
+- file name: catcher_run
+- sprite sheet
+- 4 frames total
+
+CATCH ANIMATION:
+- file name: catcher_catch
+- sprite sheet
+- 2 frames total
+
+Please make sure:
+- the run animation uses ALL 4 frames from catcher_run
+- the catch animation uses BOTH 2 frames from catcher_catch
+- frame indexing is correct
+- animation loops are correct
+- the correct animation is shown for the correct state
+
+STATE RULES:
+- when the catcher is moving/chasing normally -> use catcher_run
+- when the catcher successfully catches the cat on the third crash -> use catcher_catch
+- do not play catcher_catch during crash 1 or crash 2
+- do not freeze on the wrong frame unless intentionally desired after animation end
+
+If your code uses an animation manager, define these states clearly, for example:
+- "run"
+- "catch"
+
+==================================================
+5. REPLACE CURRENT CATCH LOGIC WITH A 3-CRASH SYSTEM
+==================================================
+
+The cat must NOT get caught on the first collision.
+
+Implement a proper crash counter system.
+
+Required variables:
+- crashCount = 0
+- maxCrashesBeforeCaught = 3
+
+LOGIC:
+Every time the cat collides with an obstacle or otherwise triggers a valid crash event:
+
+    crashCount += 1
+
+Behavior by crash number:
+
+- crashCount == 1:
+  the cat remains in the game
+  the catcher gets slightly closer
+  gameplay continues
+
+- crashCount == 2:
+  the cat remains in the game
+  the catcher gets slightly closer again
+  gameplay continues
+
+- crashCount >= 3:
+  the cat is caught
+  trigger catcher catch state / animation
+  then game over / restart / reload
+
+IMPORTANT:
+- The cat must survive the first two crashes
+- Only the third crash ends the run
+
+==================================================
+6. MINIMUM DISTANCE BETWEEN CAT AND CATCHER
+==================================================
+
+The catcher must NEVER fully overlap with the cat before the final catch event.
+
+Define a fixed value such as:
+- minCatcherDistance
+
+RULE:
+At all times during normal gameplay and during crash 1 and 2 recovery:
+
+    catcher.x <= cat.x - minCatcherDistance
+
+This must always be enforced.
+
+REQUIREMENTS:
+- no visual overlap between the sprites
+- no state where the catcher stands inside the cat
+- no zero-distance chasing
+- even after catch-up on crash 1 and 2, the minimum distance must remain visible
+
+Only on the final catch sequence (third crash) may the catcher enter the dedicated catch behavior/state.
+
+==================================================
+7. CATCH-UP RULE AFTER CRASH 1 AND CRASH 2
+==================================================
+
+After crash 1 and crash 2, the catcher should gain some ground, but only slightly and in a controlled way.
+
+Define:
+- catcherCatchUpStep
+
+REQUIREMENTS:
+- the catcher gets closer smoothly
+- no instant teleport to the cat
+- no overlap
+- no violation of minCatcherDistance
+- no snapping
+
+Suggested behavior:
+- after crash 1: reduce the gap a bit
+- after crash 2: reduce the gap a bit more
+- after crash 3: trigger final catch state
+
+==================================================
+8. FINAL CATCH EVENT ONLY ON THIRD CRASH
+==================================================
+
+Only when:
+
+    crashCount >= 3
+
+Then do the following:
+- stop normal chase state
+- switch catcher animation from catcher_run to catcher_catch
+- play catcher_catch sprite sheet animation (2 frames)
+- mark cat as caught / defeated
+- remove cat or trigger defeat state
+- restart / reload / game over after catch sequence
+
+IMPORTANT:
+- Do not trigger this on crash 1
+- Do not trigger this on crash 2
+- Do not play catcher_catch too early
+
+==================================================
+9. CLEAN FRAME UPDATE ORDER
+==================================================
+
+Each frame must use a clean update order for both cat and catcher:
+
+1. Apply gravity
+2. Update vertical velocity
+3. Move vertically
+4. Resolve ground/platform collisions
+5. Update grounded state
+6. Update horizontal movement / chase movement
+7. Enforce minCatcherDistance
+8. Update animation state
+9. Render
+
+NO conflicting updates.
+NO multiple contradictory x updates in one frame.
+NO multiple movement systems fighting each other.
+
+==================================================
+10. REQUIRED VARIABLES / STATE NAMES
+==================================================
+
+Please use clear structured variables, ideally with names like:
+
+- crashCount
+- maxCrashesBeforeCaught = 3
+- minCatcherDistance
+- catcherCatchUpStep
+- velocityY
+- isGrounded
+- catcherState
+- isCaught
+
+Animation/state examples:
+- catcherState = "run"
+- catcherState = "catch"
+
+==================================================
+11. PSEUDOCODE FOR THE INTENDED LOGIC
+==================================================
+
+Obstacle crash handling:
+
+    if cat hits obstacle:
+        crashCount += 1
+
+        if crashCount < 3:
+            targetX = min(
+                cat.x - minCatcherDistance,
+                catcher.x + catcherCatchUpStep
+            )
+            catcher.x = targetX
+            continue gameplay
+
+        else:
+            catcherState = "catch"
+            triggerCaughtState()
+
+Per frame:
+
+    applyGravity(cat)
+    applyGravity(catcher)
+
+    resolveGroundAndPlatformCollisions(cat)
+    resolveGroundAndPlatformCollisions(catcher)
+
+    updateCatMovement()
+    updateCatcherMovement()
+
+    desiredMaxX = cat.x - minCatcherDistance
+    if catcherState != "catch":
+        catcher.x = min(catcher.x, desiredMaxX)
+
+    updateCatcherAnimation()
+
+Animation logic example:
+
+    if catcherState == "run":
+        playAnimation("catcher_run")
+
+    if catcherState == "catch":
+        playAnimation("catcher_catch")
+
+==================================================
+12. EXPECTED RESULT AFTER THE FIX
+==================================================
+
+After your implementation, ALL of the following must be true:
+
+1. The catcher moves smoothly without jitter
+2. The catcher never snaps left/right randomly
+3. The catcher no longer falls through the floor at the start
+4. The catcher uses the same movement physics rules as the cat
+5. The run animation uses catcher_run with 4 frames
+6. The catch animation uses catcher_catch with 2 frames
+7. The cat survives the first 2 crashes
+8. On crash 1 and crash 2, the catcher only gets a bit closer
+9. The catcher never overlaps the cat during those first 2 crashes
+10. The final catch only happens on the 3rd crash
+11. On the 3rd crash, the catcher switches to catcher_catch
+12. The game then triggers defeat / restart cleanly
+
+==================================================
+13. IMPORTANT IMPLEMENTATION WARNING
+==================================================
+
+Do NOT hide the bug visually.
+Do NOT create a fake workaround.
+Do NOT just reduce the visible glitch.
+
+I want a real fix in:
+- movement logic
+- chase logic
+- collision logic
+- physics logic
+- spawn logic
+- animation state handling
+
+If more than one system currently modifies catcher movement, merge that into one consistent movement system.
+
+==================================================
+14. AFTER IMPLEMENTATION
+==================================================
+
+After finishing, briefly explain:
+- which files you changed
+- which functions you changed
+- where catcher_run was added/used
+- where catcher_catch was added/used
+- how you fixed the horizontal jitter
+- how you fixed the spawn-through-floor bug
+- how the 3-crash system works internally
+- how the minimum distance is enforced
+
+ADDITIONAL ANIMATION NOTE:
+Please verify that the sprite sheet frame count is read correctly:
+- catcher_run = 4 frames
+- catcher_catch = 2 frames
+
+Do not assume other frame counts.
+Do not reuse old animation definitions if they still use incorrect frame ranges.
+Update the animation registration/config if necessary.
+
+IMPORTANT:
+If the catcher currently uses separate logic for physics, chase behavior, and animation switching, make sure those systems do not conflict with each other. The final behavior must come from one coherent state-driven enemy controller.
