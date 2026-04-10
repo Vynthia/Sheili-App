@@ -96,6 +96,21 @@ export default class GameScene extends Phaser.Scene {
     // ── Player ────────────────────────────────────────────────────────────
     this._cat = new CatPlayer(this, this._platforms.group, this._platforms.surfaceY);
 
+    // ── Catcher ↔ obstacle collider ────────────────────────────────────────
+    // Both _catcher and _obstacles are now initialised above, so the group is
+    // available.  One-way processCallback mirrors the floor collider: only fires
+    // when the catcher is falling (velocity.y >= 0), so an ascending catcher
+    // can pass upward through obstacle hitboxes without being pushed back down.
+    // In normal gameplay the catcher is always airborne when obstacles reach its
+    // position (jump-mirror timing guarantees this); the collider is a safety net
+    // for edge cases where the catcher is grounded at an obstacle's screen X.
+    this.physics.add.collider(
+      this._catcher.sprite,
+      this._obstacles.group,
+      null,
+      (catcher, _obs) => catcher.body.velocity.y >= 0, // one-way: only blocks downward
+    );
+
     // ── Animations ────────────────────────────────────────────────────────
     if (!this.anims.exists("bird_fly")) {
       this.anims.create({
@@ -142,13 +157,18 @@ export default class GameScene extends Phaser.Scene {
     // ── Player ────────────────────────────────────────────────────────────
     this._cat.update(safeDelta);
 
+    // ── Catcher floor — update BEFORE catcher.update() ───────────────────
+    // The floor body must be active when the Arcade physics step resolves
+    // collisions, which happens at the START of the next frame's update.
+    // Calling updateCatcherFloor() here — before catcher.update() — ensures
+    // body.blocked.down in _updateChasing() reads the correctly-activated
+    // floor state for this frame rather than the previous frame's state.
+    // (Currently the floor is permanently enabled, so ordering is also
+    // correct defensively for any future conditional-enable logic.)
+    this._platforms.updateCatcherFloor(this._catcher.sprite.x);
+
     // ── Catcher ───────────────────────────────────────────────────────────
     const catchDone = this._catcher.update(safeDelta, this._cat.sprite);
-
-    // Update the catcher's dedicated floor body for the next physics step.
-    // Must run AFTER catcher.update() so sprite.x reflects this frame's
-    // final X position (written inside _updateCatcherMovement).
-    this._platforms.updateCatcherFloor(this._catcher.sprite.x);
 
     if (catchDone) {
       this._cat.destroy();

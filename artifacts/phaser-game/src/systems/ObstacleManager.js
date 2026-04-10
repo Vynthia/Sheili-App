@@ -127,7 +127,7 @@ export class ObstacleManager {
   constructor(scene) {
     this._scene        = scene;
     this._scrollOffset = 0;
-    this._obstacles    = []; // { worldX, sprite, hitW, obsTop, obsBottom }
+    this._obstacles    = []; // { worldX, sprite, obsLeftOffset, obsRightOffset, obsTop, obsBottom, hx, hitW, hitH }
     this._lastWorldX   = -MIN_SPACING * 2;
     this.collision     = false;
 
@@ -135,9 +135,32 @@ export class ObstacleManager {
     this._flySprite = null;
     this._flyX      = 0;
     this._flyTimer  = randDelay();
+
+    // ── Physics hitbox group for catcher collision ────────────────────────
+    // Each ground obstacle gets an invisible paired staticImage (1×1 px) whose
+    // physics body matches the AABB hitbox.  These are registered as a static
+    // group so GameScene can add a single collider between the catcher sprite
+    // and all present obstacles at once.  They are updated (repositioned) every
+    // frame alongside the visual sprite, and destroyed when the obstacle
+    // scrolls off-screen.
+    if (!scene.textures.exists('__hitbox_px')) {
+      const gfx = scene.add.graphics();
+      gfx.fillStyle(0xffffff, 1);
+      gfx.fillRect(0, 0, 1, 1);
+      gfx.generateTexture('__hitbox_px', 1, 1);
+      gfx.destroy();
+    }
+    this._hitboxGroup = scene.physics.add.staticGroup();
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
+
+  /**
+   * Static physics group containing invisible hitbox images for each live
+   * ground obstacle.  Pass to scene.physics.add.collider() so the catcher
+   * sprite can collide with obstacles using real Arcade Physics.
+   */
+  get group() { return this._hitboxGroup; }
 
   /**
    * Called by PlatformManager whenever a new segment is spawned.
@@ -168,7 +191,7 @@ export class ObstacleManager {
       const type     = OBSTACLE_TYPES[randInt(0, OBSTACLE_TYPES.length - 1)];
       const scrollPx = Math.round(this._scrollOffset);
 
-      // Plain visual image — no physics body.
+      // Plain visual image — no physics body (AABB collision with cat is manual).
       const sprite = this._scene.add.image(worldX - scrollPx, SURFACE_Y, type.key);
       sprite.setOrigin(0.5, 1); // bottom-centre on the surface
       sprite.setScale(type.scale);
@@ -185,7 +208,31 @@ export class ObstacleManager {
       const obsLeftOffset  = -halfDisplayW;          // = left visual edge
       const obsRightOffset = obsLeftOffset + type.hitW; // = narrow window rightward
 
-      this._obstacles.push({ worldX, sprite, obsLeftOffset, obsRightOffset, obsTop, obsBottom });
+      // ── Paired physics hitbox for catcher Arcade collision ────────────────
+      // A separate invisible 1-px static image acts as the physics body so the
+      // catcher's Arcade collider can resolve against it.  Origin is (0,0) so
+      // body.x == hx.x and body.y == hx.y (no display-origin math needed).
+      // Positioned so its body covers [screenX − hitW/2, screenX + hitW/2] ×
+      // [SURFACE_Y − hitH, SURFACE_Y] — identical to the cat's AABB hitbox.
+      const hx = this._scene.physics.add.staticImage(
+        worldX - scrollPx - type.hitW / 2, // left edge of hitbox
+        SURFACE_Y - type.hitH,             // top edge of hitbox
+        '__hitbox_px',
+      );
+      hx.setOrigin(0, 0); // origin (0,0) keeps body.x == sprite.x
+      hx.setAlpha(0);     // invisible
+      hx.setDepth(-1);
+      hx.body.setSize(type.hitW, type.hitH, false); // body matches hitbox exactly
+
+      this._hitboxGroup.add(hx);
+
+      this._obstacles.push({
+        worldX, sprite,
+        obsLeftOffset, obsRightOffset, obsTop, obsBottom,
+        hx,              // paired physics hitbox
+        hitW: type.hitW, // stored for per-frame repositioning
+        hitH: type.hitH,
+      });
       this._lastWorldX = worldX;
       placed++;
     }
@@ -219,7 +266,14 @@ export class ObstacleManager {
     // Timing windows: 300–344 ms (see OBSTACLE_TYPES table above).
     for (const obs of this._obstacles) {
       const screenX = obs.worldX - scrollPx;
-      obs.sprite.x  = screenX;
+      obs.sprite.x  = screenX; // scroll visual sprite
+
+      // Keep the paired physics hitbox in sync with the visual sprite.
+      // Origin (0,0) means body.x == hx.x, body.y == hx.y — no origin math.
+      // reset(x, y) on a StaticBody removes it from the broadphase tree,
+      // repositions it, then re-inserts it — the correct way to move statics.
+      obs.hx.setPosition(screenX - obs.hitW / 2, SURFACE_Y - obs.hitH);
+      obs.hx.body.reset(obs.hx.x, obs.hx.y); // update static tree entry
 
       // obsLeftOffset is anchored at the sprite's left visual edge, so collision
       // fires the instant the leading visible pixel reaches the cat's right edge.
@@ -243,6 +297,7 @@ export class ObstacleManager {
       const obs = this._obstacles[0];
       const halfDisplayW = obs.sprite.displayWidth / 2;
       if (obs.worldX - scrollPx + halfDisplayW < 0) {
+        obs.hx.destroy();     // destroy physics hitbox before sprite
         obs.sprite.destroy();
         this._obstacles.shift();
       } else {
@@ -256,7 +311,10 @@ export class ObstacleManager {
 
   /** Destroy all managed objects (call before scene.restart()). */
   destroy() {
-    for (const obs of this._obstacles) obs.sprite.destroy();
+    for (const obs of this._obstacles) {
+      obs.hx.destroy();     // destroy physics hitbox
+      obs.sprite.destroy(); // destroy visual sprite
+    }
     this._obstacles = [];
 
     if (this._flySprite) {

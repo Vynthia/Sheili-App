@@ -1,13 +1,14 @@
 // ---------------------------------------------------------------------------
-// CatcherEnemy — chasing enemy that mirrors the cat's jumps exactly.
+// CatcherEnemy — chasing enemy that mirrors the cat's jumps with a delay.
 //
 // ARCHITECTURE
 // ────────────
-// PlatformManager now maintains TWO floor bodies in separate static groups:
+// PlatformManager maintains TWO floor bodies in separate static groups:
 //   1. The cat's floor  — centred at CAT_SCREEN_X (x = 80), used by CatPlayer.
 //   2. The catcher's floor — fixed rectangle covering x = −45 to x = 65,
-//      registered here.  Never repositioned; enabled / disabled each frame via
-//      PlatformManager.updateCatcherFloor() (called from GameScene.update).
+//      registered here.  Always enabled — catcher never falls through gaps.
+//      GameScene calls updateCatcherFloor() (now BEFORE catcher.update())
+//      each frame to keep the body active.
 //
 // Ground detection uses body.blocked.down — the standard Phaser Arcade flag
 // set automatically by the collider, identical to how CatPlayer works.  No
@@ -17,27 +18,13 @@
 // catcher at CAT_X − _distance each frame and zeroes velocityX so Arcade
 // does not drift it horizontally.  Only Y physics is fully autonomous.
 //
-// JUMP RULE — mirror the cat, nothing else
-// ─────────────────────────────────────────
+// JUMP RULE — mirror the cat with a fixed delay
+// ─────────────────────────────────────────────
 // CatPlayer exposes `didJump` — a boolean flag set to true for exactly one
 // frame inside _doJump(), then reset to false at the start of each update().
-// CatcherEnemy reads it here (after CatPlayer.update() has already run this
-// frame) for a 100 % reliable, zero-ambiguity jump signal.
-//
-// Why velocity-transition detection was replaced:
-//   Phaser's Arcade physics can leave body.velocity.y at a tiny negative
-//   value (−0.1 to −2) on some grounded frames due to gravity overshoot
-//   before the collider fires.  This caused the velocity "rising edge"
-//   detector to fail intermittently, silently skipping catcher jumps.
-//
-// Why mirroring is geometrically correct:
-//   • The catcher is behind the cat, so every gap / obstacle arrives at
-//     the catcher's position AFTER it arrives at the cat's position.
-//   • The jump arc lasts ≈ 0.84 s; the gap/obstacle reaches the catcher
-//     0.07–0.53 s after the cat jumped — always while the catcher is still
-//     airborne.  The catcher clears every terrain feature the cat cleared.
-//   • No spurious autonomous jumps — the catcher only jumps when the player
-//     actually presses jump.
+// When CatcherEnemy sees didJump = true it queues a JUMP_DELAY_MS countdown
+// instead of firing immediately, giving the catcher a natural lag behind
+// the cat rather than frame-perfect mirroring.
 //
 // STATE MACHINE
 // ─────────────
@@ -63,7 +50,7 @@ const SURFACE_Y = 195;  // Ground surface Y — feet / origin-bottom
 
 // ── Render ────────────────────────────────────────────────────────────────────
 const CATCHER_SCALE = 0.5;  // 128×128 source → 64×64 display
-const CHASE_DEPTH   = 31;  // above obstacles (30) so the catcher is always fully visible
+const CHASE_DEPTH   = 31;   // above obstacles (30) so the catcher is always fully visible
 const CATCH_DEPTH   = 25;
 
 // ── Physics (same values as CatPlayer) ───────────────────────────────────────
@@ -77,8 +64,14 @@ const BODY_HEIGHT   = 40;
 const BODY_OFFSET_X = 22;
 const BODY_OFFSET_Y = 76;
 
+// ── Jump delay ────────────────────────────────────────────────────────────────
+// The catcher waits this many ms after seeing catSprite.didJump before it
+// actually fires its own jump — giving it a natural, slightly-behind feel
+// instead of frame-perfect simultaneous mirroring.
+const JUMP_DELAY_MS = 120;
+
 // ── Chase behaviour ───────────────────────────────────────────────────────────
-const CATCHUP_SPEED        = 3;  // px / s  — passive creep between crashes
+const CATCHUP_SPEED         = 3;  // px / s  — passive creep between crashes
 const CATCHER_CATCH_UP_STEP = 20; // px closer on each of crashes 1 & 2
 
 // Hard lower bound for _distance, enforced BEFORE setX every frame.
@@ -122,6 +115,12 @@ export class CatcherEnemy {
     // isGrounded = true from construction so the catcher never falls on frame 1.
     this.isGrounded = true;
     this._coyoteMs  = 0;
+
+    // ── Jump delay state ──────────────────────────────────────────────────
+    // Queues a jump JUMP_DELAY_MS after catSprite.didJump is seen.
+    // Only one pending jump at a time; new signals are ignored while queued.
+    this._pendingJump    = false; // true while countdown is running
+    this._jumpDelayTimer = 0;    // ms remaining until deferred jump fires
 
     // ── Distance tracking ────────────────────────────────────────────────
     // _distance: how many px the catcher is behind the cat.
@@ -175,8 +174,11 @@ export class CatcherEnemy {
       this._sprite,
       scene._platforms.catcherGroup,
       null,
-      (catcher, _floor) => catcher.body.velocity.y >= 0,
+      (catcher, _floor) => catcher.body.velocity.y >= 0, // one-way: only blocks downward
     );
+
+    // NOTE: The catcher-obstacle collider is registered in GameScene.create()
+    // AFTER ObstacleManager is constructed, so scene._obstacles.group exists.
 
     // ── HUD danger scalebar ──────────────────────────────────────────────
     this._barSegs = [];
@@ -264,7 +266,7 @@ export class CatcherEnemy {
    *   4. Natural creep  (_distance decreases slowly).
    *   5. Enforce minCatcherDistance on _distance  ← BEFORE setX.
    *   6. _updateCatcherMovement()  — ONLY place that writes sprite.x.
-   *   7. Cat-mirror jump — fires the ONE frame that CatPlayer.didJump is true.
+   *   7. Cat-mirror jump with JUMP_DELAY_MS countdown.
    *   8. Body offset lock.
    *   9. Animation update.
    */
@@ -274,10 +276,7 @@ export class CatcherEnemy {
     // ── 2. Grounded state via real physics (same as CatPlayer) ────────────
     // body.blocked.down is set by the Arcade physics collider against the
     // catcher's dedicated floor body in PlatformManager.  That floor body is
-    // enabled when the catcher is over a platform segment (updated by
-    // GameScene.update after each frame) and disabled over gaps — so
-    // blocked.down naturally becomes false when the catcher walks off an edge,
-    // which opens the coyote window exactly like the cat.
+    // always enabled (catcher never falls through gaps).
     const onGround = body.blocked.down;
     if (onGround && !this.isGrounded) {
       this.isGrounded = true;
@@ -303,21 +302,28 @@ export class CatcherEnemy {
     // ── 6. Single authoritative X update ─────────────────────────────────
     this._updateCatcherMovement();
 
-    // ── 7. Cat-mirror jump ───────────────────────────────────────────────
-    // CatPlayer sets didJump = true for exactly ONE frame per jump (in
-    // _doJump()) and resets it to false at the top of every update() call.
-    // Reading it here — after this._cat.update() has already run — gives a
-    // 100 % reliable, frame-perfect signal with no velocity-detection quirks.
-    //
-    // No canJump guard: if the catcher is mid-fall into a gap when the cat
-    // jumps, it still needs the corrective impulse.  Since the cat can only
-    // jump from the ground (single-jump), there is no risk of double-firing.
-    if (this._catSprite?.didJump) {
-      body.setVelocityY(JUMP_VEL);
-      this.isGrounded = false;
-      this._coyoteMs  = 0;
-      this._sprite.anims.stop();
-      this._sprite.setFrame(2); // ascent frame
+    // ── 7. Cat-mirror jump with delay ─────────────────────────────────────
+    // When catSprite.didJump is true (exactly ONE frame per cat jump),
+    // queue a deferred jump rather than firing immediately.
+    // Only one pending jump is allowed at a time — new signals while
+    // a jump is already queued are silently ignored.
+    if (this._catSprite?.didJump && !this._pendingJump) {
+      // Start the countdown for the delayed jump.
+      this._pendingJump    = true;
+      this._jumpDelayTimer = JUMP_DELAY_MS;
+    }
+
+    if (this._pendingJump) {
+      this._jumpDelayTimer -= delta; // count down
+      if (this._jumpDelayTimer <= 0) {
+        // Fire the deferred jump now.
+        body.setVelocityY(JUMP_VEL);
+        this.isGrounded      = false;
+        this._coyoteMs       = 0;
+        this._pendingJump    = false; // consume the queued jump
+        this._sprite.anims.stop();
+        this._sprite.setFrame(2); // ascent frame
+      }
     }
 
     // ── 8. Body offset lock ───────────────────────────────────────────────
@@ -369,13 +375,15 @@ export class CatcherEnemy {
     this._sprite.setDepth(CATCH_DEPTH);
     this._sprite.play('catcher-catch'); // 2-frame anim, only here
 
-    // Stop all vertical physics for the 900 ms catch animation.
-    // The catcher teleports to x=90 which is outside its floor body range
-    // (x=−45 to x=65), so the collider won't fire.  Without this the catcher
-    // falls off-screen before the scene restarts.
+    // Completely stabilize all physics so the catcher cannot fall or drift
+    // during the 900 ms catch animation.  The teleport to x=90 puts the
+    // catcher outside the dedicated floor body range (x=−45 to x=65), so
+    // the floor collider won't fire — without disabling physics the catcher
+    // would fall off-screen before the scene restarts.
     const body = this._sprite.body;
-    body.setVelocityY(0);
-    body.setGravityY(0);
+    body.setVelocity(0, 0);  // zero both X and Y velocity
+    body.setGravityY(0);     // remove gravity for the animation window
+    body.enable = false;     // disable physics entirely — no forces or collisions
 
     if (this._catSprite) this._catSprite.setVisible(false);
   }

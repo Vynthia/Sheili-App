@@ -1,0 +1,78 @@
+Fix my Phaser Arcade Physics CatcherEnemy system with minimal, targeted changes only. Do not rewrite the architecture, do not redesign the game loop, and do not replace Arcade Physics with custom movement. Keep the existing structure with CatcherEnemy, GameScene, PlatformManager, catcherGroup, manual X positioning, and the existing state machine ('run', 'catch', 'done'). I want direct working code, not suggestions or pseudocode.
+
+Current issues that must be fixed:
+1. The catcher sometimes falls through the floor / bottom of the canvas even when there should be valid ground beneath it.
+2. The catcher does not properly collide with obstacles and can pass through them or behave incorrectly relative to them.
+3. The catcher currently jumps in the exact same frame as the cat, but I want a small jump delay.
+4. The final catch state must be stabilized so the catcher does not move, fall, or continue physics behavior during the catch animation.
+
+Implement the following exactly:
+
+A) Ground / floor stability fix
+- The catcher must never fall through valid ground.
+- Keep using Arcade Physics collision against the dedicated catcher floor group.
+- Keep using body.blocked.down as the only authoritative grounded check.
+- Do not replace the vertical physics with manual Y snapping.
+- Check the update order in GameScene.update().
+- PlatformManager.updateCatcherFloor() must run before catcher.update(...), so that CatcherEnemy reads the correct floor state in the same frame.
+- If a small emergency off-screen failsafe is needed, add it only as a debug safety backup, not as the main solution.
+- The real solution must come from correct catcher floor activation timing and physics collision.
+
+B) Obstacle collision fix
+- Add a proper Arcade Physics collider between the catcher sprite and the existing obstacle group used by the game.
+- Use the already existing obstacle group or obstacle collection in the project. Do not invent a duplicate obstacle system.
+- The catcher must no longer pass through obstacles.
+- Make the behavior physically correct and consistent with the rest of the game.
+- If needed, keep the catcher visually in front or behind obstacles according to the current intended art direction, but physical collision must work regardless.
+
+C) Jump delay implementation
+- Add a fixed delay before the catcher mirrors the cat’s jump.
+- Introduce:
+  const JUMP_DELAY_MS = 120;
+- In the CatcherEnemy constructor add:
+  this._pendingJump = false;
+  this._jumpDelayTimer = 0;
+- Replace the current immediate didJump reaction with delayed logic:
+  1. If catSprite.didJump is true, catcherState is 'run', and no pending jump exists yet:
+     - set this._pendingJump = true
+     - set this._jumpDelayTimer = JUMP_DELAY_MS
+  2. Each update while a jump is pending:
+     - decrement _jumpDelayTimer by delta
+     - when timer <= 0:
+       - call body.setVelocityY(JUMP_VEL)
+       - set this.isGrounded = false
+       - set this._coyoteMs = 0
+       - set this._pendingJump = false
+       - stop current animation and switch to the ascent frame
+- Do not allow multiple queued jumps at once.
+- Only one pending delayed jump can exist at a time.
+- This delayed jump system must only operate while catcherState === 'run'.
+
+D) Final catch stabilization
+- In _beginFinalCatch(), completely stabilize the catcher so no remaining physics can make it fall or drift during the catch animation.
+- At minimum set:
+  body.setVelocity(0, 0);
+  body.setGravityY(0);
+- If needed, also disable further motion-related logic so the catch animation remains visually stable until restart.
+- Keep the existing catch animation behavior and state transitions.
+
+E) Preserve existing architecture
+- Keep _updateCatcherMovement() as the authoritative X-position function.
+- Keep manual horizontal placement of the catcher relative to the cat.
+- Keep vertical movement driven by Arcade Physics.
+- Keep the existing animation system and state machine where possible.
+- Do not perform a full rewrite.
+- Only fix the broken areas with minimal changes.
+
+F) Output requirements
+Return:
+1. The full corrected CatcherEnemy class, ready to paste.
+2. The exact GameScene.update() change showing where updateCatcherFloor() must be called.
+3. Any PlatformManager change only if absolutely necessary.
+4. Short inline comments at changed lines explaining what each fix is doing.
+
+Important:
+- Give concrete final code, not explanations only.
+- Do not give pseudocode.
+- Do not omit any required changed file section.
+- Make the result directly pasteable and runnable.
