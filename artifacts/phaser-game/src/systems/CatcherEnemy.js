@@ -125,7 +125,7 @@ export class CatcherEnemy {
     // Physics body.
     const body = this._sprite.body;
     body.setGravityY(GRAVITY_Y);
-    body.setCollideWorldBounds(true);
+    body.setCollideWorldBounds(false); // X is managed manually; world bounds cause jitter
     body.setSize(BODY_WIDTH, BODY_HEIGHT, false);
     body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
 
@@ -195,8 +195,13 @@ export class CatcherEnemy {
         const onGround = body.blocked.down;
 
         // ── Horizontal position ─────────────────────────────────────────
-        // Creep slowly closer; never advance past distance=0 on its own.
-        this._distance = Math.max(0, this._distance - CATCHUP_SPEED * (delta / 1000));
+        // Creep slowly closer; never advance past a safe minimum gap so the
+        // catcher can never physically overlap the cat on its own.
+        const MIN_DISTANCE = 14;
+        this._distance = Math.max(MIN_DISTANCE, this._distance - CATCHUP_SPEED * (delta / 1000));
+
+        // Keep horizontal velocity at zero — X is driven manually.
+        this._sprite.body.setVelocityX(0);
 
         // ── Vertical bob ────────────────────────────────────────────────
         // Add a gentle sine-wave offset so the catcher doesn't feel locked
