@@ -182,26 +182,27 @@ export class PlatformManager {
   get surfaceY() { return SURFACE_Y; }
 
   /**
-   * Enable or disable the catcher's dedicated floor body based on whether
-   * the catcher's current screen-X position falls over a platform segment.
+   * Keep the catcher's dedicated floor body permanently enabled.
    *
-   * Call every frame from GameScene.update() AFTER catcher.update() has
-   * written the catcher sprite's final X for this frame.
+   * The catcher is a supernatural pursuer — it never falls through gaps.
+   * It already mirrors the cat's jumps, so it is airborne when a gap passes
+   * beneath it.  The floor body must be ALWAYS active so that when the
+   * catcher comes back down (sometimes right at a gap edge), the Arcade
+   * physics collider fires correctly and the catcher lands at SURFACE_Y
+   * rather than falling through into the void.
    *
-   * @param {number} catcherScreenX  Current screen X of the catcher sprite.
+   * Disabling it based on gap overlap caused a timing bug: on wide gaps
+   * (70–90 px) the catcher could land exactly as the gap was still beneath
+   * it, the disabled body meant no collider fired, and the catcher fell
+   * to the bottom of the canvas.
+   *
+   * Call signature is kept so GameScene.update() needs no changes.
+   *
+   * @param {number} _catcherScreenX  (unused — kept for call-site compatibility)
    */
-  updateCatcherFloor(catcherScreenX) {
-    const scrollPx      = Math.round(this._scrollOffset);
-    const catcherWorldX = scrollPx + catcherScreenX;
-    let onPlatform = false;
-    for (const seg of this._segments) {
-      // Same overlap test as the cat: catcher body centre point inside segment.
-      if (catcherWorldX >= seg.worldX && catcherWorldX < seg.worldX + seg.width) {
-        onPlatform = true;
-        break;
-      }
-    }
-    this._catcherFloor.body.enable = onPlatform;
+  updateCatcherFloor(_catcherScreenX) {
+    // Always enabled — catcher never falls through gaps.
+    this._catcherFloor.body.enable = true;
   }
 
   /** Call every frame from GameScene.update(). */
