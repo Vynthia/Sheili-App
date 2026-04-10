@@ -36,8 +36,16 @@ const config = {
     // Target 60 fps; limit prevents uncapped loops burning CPU on fast screens.
     target: 60,
     limit: 60,
-    // Smooth the delta time to absorb brief frame-time spikes.
-    smoothStep: true,
+    // smoothStep is intentionally OFF.
+    //
+    // Phaser's smoothStep averages delta time using an exponential moving
+    // average that starts from smoothDelta=0.  This causes the first ~20
+    // frames to receive a near-zero delta, making the game run in slow
+    // motion at startup before gradually accelerating to normal speed.
+    //
+    // GameScene.update() caps every delta at MAX_DELTA_MS=50ms instead,
+    // which handles real first-frame spikes without the warm-up lag.
+    smoothStep: false,
   },
 
   physics: {
