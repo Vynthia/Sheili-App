@@ -50,6 +50,25 @@ const GROUND_DEPTH = 9;
 const CATCHER_FLOOR_CENTER_X = 10;
 const CATCHER_FLOOR_W        = 110;
 
+// WHY the catcher floor body is tall (350 px vs the cat's 8 px):
+//
+// The catcher's jump arc lasts ≈ 0.84 s.  A gap (max 90 px at 150 px/s)
+// takes ≈ 0.6 s to pass the CAT but ≈ 1.11 s to fully clear the CATCHER
+// (which is 90 px behind).  The catcher mirrors the cat's jump and is
+// already airborne before the gap arrives, but it lands (≈ 0.84 s later)
+// while the gap is still scrolling under it.  With an 8-px floor body that
+// is disabled during the gap, the catcher's physics body falls well below
+// the surface before the next segment re-enables the floor, at which point
+// the small body produces no overlap → no collision → permanent fall.
+//
+// Solution: make the floor body tall enough (350 px) to overlap the catcher
+// body no matter how far it has sunk below SURFACE_Y.  When the next
+// segment arrives and the floor re-enables, the Arcade physics resolves the
+// overlap by pushing the catcher up to body.bottom = SURFACE_Y — identical
+// to the old manual setY() snap, but implemented through the real physics
+// engine.  The one-way processCallback still prevents upward blocking.
+const CATCHER_FLOOR_H = 350; // tall enough to catch the catcher after any realistic fall
+
 // ---------------------------------------------------------------------------
 // Scroll / generation constants
 // ---------------------------------------------------------------------------
@@ -159,7 +178,7 @@ export class PlatformManager {
     this._catcherFloor.setOrigin(0.5, 0);
     this._catcherFloor.setAlpha(0);
     this._catcherFloor.setDepth(GROUND_DEPTH);
-    this._catcherFloor.body.setSize(CATCHER_FLOOR_W, FLOOR_H);
+    this._catcherFloor.body.setSize(CATCHER_FLOOR_W, CATCHER_FLOOR_H);
     this._catcherFloor.body.reset(CATCHER_FLOOR_CENTER_X - CATCHER_FLOOR_W / 2, SURFACE_Y);
     this._catcherGroup.add(this._catcherFloor);
 
