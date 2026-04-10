@@ -1,0 +1,414 @@
+IMPORTANT: You already fixed two parts correctly:
+1. the catcher no longer falls through the floor at the beginning
+2. the cat is only truly caught on the third crash
+
+However, the implementation is still NOT correct.
+
+There are still critical gameplay and physics problems that must now be fixed properly.
+
+Please refactor the catcher/enemy logic AGAIN and implement the following EXACTLY.
+
+==================================================
+CURRENT REMAINING PROBLEMS
+==================================================
+
+The catcher still has these issues:
+
+1. The catcher still bugs/jitters during movement
+2. The catcher catches up too quickly and leaves no visible distance to the cat
+3. The catcher does NOT have the same physical abilities as the cat
+4. The catcher does not jump correctly
+5. If it jumps, it reacts too late after the cat jumps
+6. The catcher can move across gaps even when it should fall
+7. The catcher can move behind or through obstacles in a way the cat cannot
+8. The catcher is still not using the same real gameplay rules as the cat
+
+This must now be fixed properly at the logic level, not visually.
+
+==================================================
+1. THE CATCHER MUST FOLLOW THE SAME WORLD RULES AS THE CAT
+==================================================
+
+This is the most important requirement.
+
+The catcher must obey the same world/gameplay rules as the cat:
+
+- same gravity
+- same jumping rules
+- same falling rules
+- same landing rules
+- same grounded detection
+- same collision with floors
+- same collision with platforms
+- same collision with obstacles
+- same reaction to gaps
+- same blocked movement rules
+
+That means:
+
+- if the cat would fall into a gap, the catcher must also fall into that gap
+- if the cat must jump over a gap, the catcher must also need to jump over that gap
+- if an obstacle blocks the cat, the same obstacle must also block the catcher
+- the catcher must NOT be allowed to pass behind obstacles
+- the catcher must NOT be allowed to ignore obstacle collision
+- the catcher must NOT be allowed to cheat through geometry
+- the catcher must NOT hover over gaps
+- the catcher must NOT stay on invisible ground
+
+The catcher must exist in the same physical level space as the cat.
+
+==================================================
+2. NO DELAYED OR FAKE JUMPING
+==================================================
+
+The catcher should not perform a delayed imitation jump after the cat jumps.
+
+That behavior is wrong.
+
+Instead:
+- the catcher must respond to the level and terrain itself
+- the catcher should jump only when the same world logic requires it
+- the catcher must use actual jump physics
+- the catcher must not wait and then perform a late copy of the cat’s jump
+
+IMPORTANT:
+Do NOT mirror the cat jump with a delay.
+Do NOT simulate fake chase jumps.
+Use actual terrain-aware movement and collision logic.
+
+==================================================
+3. CATCHER MUST NOT IGNORE GAPS
+==================================================
+
+Currently the catcher can move over gaps incorrectly.
+
+This must be fixed.
+
+Required behavior:
+- if there is no ground under the catcher, it must fall
+- it must not continue horizontally as if ground exists
+- it must not glide over empty space
+- it must not use a hidden support surface
+
+If the catcher is supposed to survive gaps, it must do so only by:
+- jumping correctly using the same jump logic as the cat
+or
+- landing on a real platform
+
+==================================================
+4. CATCHER MUST NOT MOVE THROUGH OR BEHIND OBSTACLES
+==================================================
+
+Currently the catcher can move behind obstacles / through blocked space.
+
+This must never happen.
+
+Required behavior:
+- obstacles must affect the catcher the same way they affect the cat
+- the catcher cannot phase through obstacles
+- the catcher cannot be rendered “behind” an obstacle in a way that bypasses collision
+- if the obstacle is solid, it must be solid for both cat and catcher
+- if the cat must jump over it, the catcher must also need to jump over it
+
+Use the same collision masks / collision boxes / solid object logic for both characters.
+
+==================================================
+5. SAME MOVEMENT CAPABILITIES AS THE CAT
+==================================================
+
+The catcher still does not have the same capabilities as the cat.
+
+Fix this by making sure the catcher uses the same movement controller architecture as the cat.
+
+The catcher must support:
+- running
+- jumping
+- falling
+- landing
+- obstacle collision
+- floor collision
+- platform collision
+- gravity-based vertical motion
+
+If you currently use special enemy movement code that bypasses the real controller, remove that shortcut.
+
+If possible:
+- both cat and catcher should use the same shared movement/controller code
+- only speed values / AI decisions may differ
+
+==================================================
+6. HARD MINIMUM DISTANCE (VERY IMPORTANT)
+==================================================
+
+The catcher still gets too close to the cat.
+
+This is NOT allowed.
+
+A clearly visible distance must always remain between them before the final catch event.
+
+Define a strict constant:
+
+- minCatcherDistance
+
+This must be enforced as a hard rule:
+
+    catcher.x <= cat.x - minCatcherDistance
+
+IMPORTANT:
+This must NOT be optional.
+This must NOT be approximate.
+This must be clamped every frame if necessary.
+
+Requirements:
+- the catcher must never visually overlap the cat during normal gameplay
+- the catcher must never touch the cat during crash 1 or crash 2
+- the catcher must never reduce the distance below minCatcherDistance
+- the gap between them must remain visibly readable to the player
+
+Only during the final catch event on crash 3 may the normal distance rule be replaced by the catch sequence.
+
+==================================================
+7. CATCH-UP AFTER CRASH 1 AND 2 IS STILL TOO AGGRESSIVE
+==================================================
+
+Right now the catcher catches up too quickly.
+
+That must be reduced.
+
+Required behavior:
+- on crash 1: catcher gets only slightly closer
+- on crash 2: catcher gets slightly closer again
+- but in both cases the minimum distance must still remain
+
+Use:
+- a smaller catcherCatchUpStep
+- and enforce the distance clamp after the catch-up update
+
+Example logic:
+
+    catcher.x = min(
+        catcher.x + catcherCatchUpStep,
+        cat.x - minCatcherDistance
+    )
+
+The catcher must never move beyond that limit.
+
+==================================================
+8. REMOVE JITTER / BUGGED MOVEMENT COMPLETELY
+==================================================
+
+The catcher still bugs during movement.
+
+This usually means more than one system is fighting over the catcher position.
+
+Please fix this properly.
+
+Check for:
+- multiple x updates per frame
+- chase code and collision code both overwriting x
+- animation code affecting position
+- correction code snapping the catcher back and forth
+- conflicting target positions
+- inconsistent delta time usage
+- rounding causing oscillation
+
+Required rule:
+- catcher horizontal movement must be controlled in one clean system only
+- do not let multiple systems reposition the catcher in contradictory ways
+
+==================================================
+9. THE CATCHER MUST BE A REAL CHARACTER, NOT A VISUAL EFFECT
+==================================================
+
+The catcher should behave like a true second runner in the same level, not like a decorative enemy glued behind the cat.
+
+That means:
+- it has real grounded state
+- it has real velocityY
+- it has real collision
+- it has real falling
+- it has real jumping
+- it has real response to terrain
+- it has real obstacle blocking
+
+It must not be a sprite that only visually follows.
+
+==================================================
+10. PRESERVE WHAT IS ALREADY CORRECT
+==================================================
+
+Please keep the two things that are already working:
+
+1. the catcher must NOT fall through the floor at the start
+2. the cat must only be fully caught on the third crash
+
+Do not break those while fixing the remaining issues.
+
+==================================================
+11. REQUIRED LOGIC FOR CATCH SYSTEM
+==================================================
+
+Keep this system:
+
+- crashCount = 0
+- maxCrashesBeforeCaught = 3
+
+Behavior:
+- first crash: gameplay continues, catcher gets a bit closer
+- second crash: gameplay continues, catcher gets a bit closer again
+- third crash: final catch event, catch animation, defeat/restart
+
+Do not change that part except to ensure the catcher still respects minCatcherDistance before crash 3.
+
+==================================================
+12. REQUIRED ANIMATION USAGE
+==================================================
+
+Keep these animation assets:
+
+RUN animation:
+- catcher_run
+- sprite sheet with 4 frames
+
+CATCH animation:
+- catcher_catch
+- sprite sheet with 2 frames
+
+Rules:
+- normal movement/chase = use catcher_run
+- final catch on crash 3 = use catcher_catch
+- do not use catcher_catch before the third crash
+
+==================================================
+13. CLEAN PHYSICS / UPDATE ORDER
+==================================================
+
+Use a clean update order every frame for BOTH cat and catcher:
+
+1. apply gravity
+2. update vertical velocity
+3. move vertically
+4. resolve floor/platform collisions
+5. update grounded state
+6. decide horizontal movement
+7. resolve obstacle collisions
+8. enforce minimum catcher distance
+9. update animation state
+10. render
+
+IMPORTANT:
+Do not skip collision checks for the catcher.
+Do not bypass terrain checks for the catcher.
+
+==================================================
+14. REQUIRED VARIABLES / STATE
+==================================================
+
+Use or keep clear variables like:
+
+- crashCount
+- maxCrashesBeforeCaught = 3
+- minCatcherDistance
+- catcherCatchUpStep
+- velocityY
+- isGrounded
+- catcherState
+- isCaught
+
+==================================================
+15. PSEUDOCODE FOR THE CORRECT INTENT
+==================================================
+
+The catcher must behave like this conceptually:
+
+Per frame:
+    applyGravity(cat)
+    applyGravity(catcher)
+
+    moveVertical(cat)
+    moveVertical(catcher)
+
+    resolveGroundPlatformCollision(cat)
+    resolveGroundPlatformCollision(catcher)
+
+    resolveObstacleCollision(cat)
+    resolveObstacleCollision(catcher)
+
+    updateCatMovement()
+
+    updateCatcherMovementUsingRealPhysicsAndTerrain()
+
+    if catcherState != "catch":
+        catcher.x = min(catcher.x, cat.x - minCatcherDistance)
+
+Crash logic:
+    if cat hits obstacle:
+        crashCount += 1
+
+        if crashCount == 1 or crashCount == 2:
+            catcher.x = min(
+                catcher.x + catcherCatchUpStep,
+                cat.x - minCatcherDistance
+            )
+
+        else if crashCount >= 3:
+            catcherState = "catch"
+            triggerCaughtState()
+
+IMPORTANT:
+The catcher must still obey terrain, gravity, and collisions.
+Do not turn it into a free-floating follow object.
+
+==================================================
+16. SUCCESS CONDITIONS
+==================================================
+
+After this fix, ALL of the following must be true:
+
+1. The catcher no longer jitters
+2. The catcher no longer snaps left/right
+3. The catcher keeps a clear visible distance from the cat
+4. The catcher never overlaps the cat before the final catch
+5. The catcher does not catch up too quickly
+6. The catcher uses the same physical movement rules as the cat
+7. The catcher can jump properly when the terrain requires it
+8. The catcher does not perform delayed fake jumps
+9. The catcher falls into gaps if it fails to jump
+10. The catcher cannot walk over empty gaps
+11. The catcher cannot move through or behind obstacles
+12. The catcher remains a real colliding runner in the level
+13. The first two crashes do not end the game
+14. The third crash triggers the final catch correctly
+15. catcher_run still uses 4 frames
+16. catcher_catch still uses 2 frames
+
+==================================================
+17. IMPORTANT FINAL WARNING
+==================================================
+
+Do NOT patch this visually.
+Do NOT hide the bug.
+Do NOT fake the catcher behavior.
+
+I want a real logic fix in:
+- enemy movement
+- enemy physics
+- terrain handling
+- collision handling
+- distance enforcement
+- jump behavior
+
+If your current implementation uses shortcuts that let the catcher ignore terrain, remove those shortcuts.
+
+==================================================
+18. AFTER IMPLEMENTATION
+==================================================
+
+After finishing, briefly explain:
+- which files you changed
+- which functions you changed
+- how you fixed the jitter
+- how you made the catcher obey the same terrain rules as the cat
+- how you prevented overlap
+- how minCatcherDistance is enforced
+- how you stopped the catcher from crossing gaps and obstacles incorrectly

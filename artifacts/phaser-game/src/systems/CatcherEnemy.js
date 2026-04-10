@@ -1,78 +1,89 @@
 // ---------------------------------------------------------------------------
-// CatcherEnemy — state-driven chaser enemy.
+// CatcherEnemy — physics-correct chasing enemy.
 //
-// State machine
+// WHY NO PLATFORM PHYSICS COLLIDER
+// ─────────────────────────────────
+// PlatformManager uses a single static floor body permanently placed at
+// CAT_SCREEN_X=80 (not per-tile bodies).  Registering the catcher against
+// that group caused two bugs:
+//   1. The floor body is only at x=80, never under the catcher → falls through.
+//   2. When the catcher is near x=80, its body overlaps the static body and
+//      the physics engine pushes it left/right → horizontal jitter.
+//
+// Instead we do a manual world-space segment check (same data PlatformManager
+// uses for the cat) to decide whether the catcher is over solid ground.
+// Gravity and vertical velocity still come from Arcade physics (jump works
+// correctly); only the grounding snap is done manually.
+//
+// STATE MACHINE
 // ─────────────
-//   catcherState = 'run'   → chasing the cat; normal physics + movement
-//   catcherState = 'catch' → final catch animation plays (crash 3 only)
-//   catcherState = 'done'  → signals GameScene to restart
+//   catcherState = 'run'   → chasing; real physics + terrain check
+//   catcherState = 'catch' → final catch animation (crash 3 only)
+//   catcherState = 'done'  → GameScene should restart
 //
-// Crash system
+// CRASH SYSTEM
 // ────────────
-//   crashCount 0 → 1  :  catcher moves to CATCH_UP_STEPS[1] (closer), gameplay continues
-//   crashCount 1 → 2  :  catcher moves to CATCH_UP_STEPS[2] (closer), gameplay continues
-//   crashCount 2 → 3  :  _beginFinalCatch() — catcher_catch plays, then game restarts
+//   crash 1 → catcher moves catcherCatchUpStep px closer, gameplay continues
+//   crash 2 → same, slightly closer again
+//   crash 3 → _beginFinalCatch() → catcher_catch plays → restart
 //
-// Movement
-// ────────
-//   Horizontal X is updated in ONE place only: _updateCatcherMovement().
-//   Vertical Y uses real Arcade physics (gravity + platform collider + floor clamp).
-//   minCatcherDistance is enforced every frame after movement.
-//
+// MINIMUM DISTANCE
+// ────────────────
+//   minCatcherDistance is enforced in ONE place AFTER all chase / catch-up
+//   calculations have been applied (per the spec requirement).
 // ---------------------------------------------------------------------------
 
 import Phaser from "phaser";
 
-// ── Layout (must match GameScene / ObstacleManager) ─────────────────────────
-const CAT_X     = 80;   // Cat's fixed screen X
-const SURFACE_Y = 195;  // Ground surface Y (feet / origin bottom)
+// ── Layout ───────────────────────────────────────────────────────────────────
+const CAT_X     = 80;   // Cat's fixed screen X (must match CatPlayer)
+const SURFACE_Y = 195;  // Ground surface Y — feet / origin bottom
 
 // ── Render ───────────────────────────────────────────────────────────────────
 const CATCHER_SCALE = 0.5;  // 128×128 source → 64×64 display
 const CHASE_DEPTH   = 15;
 const CATCH_DEPTH   = 25;
 
-// ── Physics (identical to CatPlayer) ────────────────────────────────────────
-const GRAVITY_Y = 900;
-const JUMP_VEL  = -380;
-const COYOTE_MS = 150;
+// ── Physics (same values as CatPlayer) ───────────────────────────────────────
+const GRAVITY_Y = 900;   // px / s²
+const JUMP_VEL  = -380;  // px / s (upward)
+const COYOTE_MS = 150;   // ms after leaving ground where jump still works
 
-// Hitbox (same geometry as cat)
+// ── Hitbox (same geometry as cat — fair platform + obstacle interaction) ─────
 const BODY_WIDTH    = 28;
 const BODY_HEIGHT   = 40;
 const BODY_OFFSET_X = 22;
 const BODY_OFFSET_Y = 76;
 
-// ── Chase behaviour ──────────────────────────────────────────────────────────
-// CATCHUP_SPEED: natural creep toward cat between crashes (px/s)
-const CATCHUP_SPEED = 3;
+// ── Chase behaviour ───────────────────────────────────────────────────────────
+// Natural creep: catcher closes the gap at CATCHUP_SPEED px/s between crashes.
+const CATCHUP_SPEED = 3; // px/s (very slow — only for atmosphere)
 
-// minCatcherDistance: catcher.x must always be <= cat.x - this value
-const MIN_CATCHER_DISTANCE = 20;
+// On each crash (1 and 2), move the catcher catcherCatchUpStep px closer.
+const CATCHER_CATCH_UP_STEP = 25; // px gained per crash
 
-// Distance (px behind cat) after each crash:
-//   index 0 = start / after crash 0   (no crash yet)
-//   index 1 = after crash 1
-//   index 2 = after crash 2
-//   crash 3 → final catch
-const CATCH_UP_STEPS = [85, 50, 20];
+// Hard minimum gap between catcher and cat, enforced AFTER all calculations.
+const MIN_CATCHER_DISTANCE = 20; // px
 
-// ── Crash system ─────────────────────────────────────────────────────────────
+// ── Crash system ──────────────────────────────────────────────────────────────
 const MAX_CRASHES_BEFORE_CAUGHT = 3;
 
-// ── Catch animation ──────────────────────────────────────────────────────────
+// Starting distance (px behind cat).
+const START_DISTANCE = 80;
+
+// ── Catch animation ───────────────────────────────────────────────────────────
 const CATCH_ANIM_MS = 900; // ms the catcher_catch animation plays
 
-// ── Bob ──────────────────────────────────────────────────────────────────────
+// ── Bob (ground-only cosmetic) ────────────────────────────────────────────────
 const BOB_AMPLITUDE = 3;      // px
 const BOB_SPEED     = 0.0025; // rad/ms
 
-// ── HUD scalebar ─────────────────────────────────────────────────────────────
-const BAR_X = 10;
-const BAR_Y = 10;
-const SEG_W = 18;
-const SEG_H = 7;
-const SEG_GAP = 3;
+// ── HUD scalebar ──────────────────────────────────────────────────────────────
+const BAR_X     = 10;
+const BAR_Y     = 10;
+const SEG_W     = 18;
+const SEG_H     = 7;
+const SEG_GAP   = 3;
 const COL_EMPTY   = 0x222233;
 const SEG_COLOURS = [0xFF8800, 0xFF3300, 0xFF0000];
 
@@ -83,28 +94,28 @@ export class CatcherEnemy {
   constructor(scene) {
     this._scene = scene;
 
-    // ── Core state ──────────────────────────────────────────────────────────
+    // ── Core state ────────────────────────────────────────────────────────
     this.catcherState = 'run'; // 'run' | 'catch' | 'done'
     this.crashCount   = 0;
     this.isCaught     = false;
     this._timer       = 0;
     this._catSprite   = null;
 
-    // ── Physics sub-state ───────────────────────────────────────────────────
-    // isGrounded: true from frame 1 so the catcher never falls through the floor
-    this.isGrounded  = true;
-    this._coyoteMs   = 0;
+    // ── Physics sub-state ─────────────────────────────────────────────────
+    // isGrounded starts true so catcher is grounded from frame 1.
+    this.isGrounded = true;
+    this._coyoteMs  = 0;
     this._jumpRequested = false;
 
-    // ── Distance tracking ───────────────────────────────────────────────────
-    // _distance = how many px the catcher is behind the cat
-    // catcher.x = CAT_X - _distance
-    this._distance = CATCH_UP_STEPS[0]; // 85 px at start
+    // ── Distance / horizontal state ───────────────────────────────────────
+    // _distance = how many px the catcher is behind the cat.
+    // catcher.x = CAT_X - _distance  (set in one place: _updateCatcherMovement)
+    this._distance = START_DISTANCE;
 
-    // ── Bob ─────────────────────────────────────────────────────────────────
+    // ── Bob ───────────────────────────────────────────────────────────────
     this._bobTime = 0;
 
-    // ── Animations (register once per scene) ────────────────────────────────
+    // ── Animations (register once per scene) ─────────────────────────────
     if (!scene.anims.exists('catcher-run')) {
       scene.anims.create({
         key:       'catcher-run',
@@ -122,7 +133,7 @@ export class CatcherEnemy {
       });
     }
 
-    // ── Physics sprite ───────────────────────────────────────────────────────
+    // ── Physics sprite ────────────────────────────────────────────────────
     const startX = CAT_X - this._distance;
     this._sprite = scene.physics.add.sprite(startX, SURFACE_Y, 'catcher_run');
     this._sprite.setOrigin(0.5, 1);
@@ -130,32 +141,26 @@ export class CatcherEnemy {
     this._sprite.setDepth(CHASE_DEPTH);
     this._sprite.play('catcher-run');
 
-    // Physics body — identical setup to CatPlayer.
+    // Physics body — gravity only.
+    // NO platform collider: PlatformManager's single static body is at x=80
+    // and causes horizontal jitter when the catcher overlaps it.
+    // Ground detection is handled manually via world-space segment checks.
     const body = this._sprite.body;
     body.setGravityY(GRAVITY_Y);
-    body.setCollideWorldBounds(false); // X is driven manually; world bounds cause jitter
+    body.setCollideWorldBounds(false);
     body.setSize(BODY_WIDTH, BODY_HEIGHT, false);
     body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
-    // Start with zero vertical velocity so the catcher is grounded from frame 1.
-    body.setVelocityY(0);
     body.setVelocityX(0);
+    body.setVelocityY(0); // start with zero velocity — catcher is grounded from frame 1
 
-    // One-way platform collider (same rule as cat: only blocks when falling).
-    scene.physics.add.collider(
-      this._sprite,
-      scene._platforms.group,
-      null,
-      (catcher, _platform) => catcher.body.velocity.y >= 0,
-    );
-
-    // ── Input ────────────────────────────────────────────────────────────────
+    // ── Input ─────────────────────────────────────────────────────────────
     this._keys = scene.input.keyboard.addKeys({
       space: Phaser.Input.Keyboard.KeyCodes.SPACE,
     });
     this._onPointerDown = () => { this._jumpRequested = true; };
     scene.input.on('pointerdown', this._onPointerDown);
 
-    // ── HUD danger scalebar ──────────────────────────────────────────────────
+    // ── HUD danger scalebar ───────────────────────────────────────────────
     this._barSegs = [];
     for (let i = 0; i < MAX_CRASHES_BEFORE_CAUGHT; i++) {
       const x = BAR_X + i * (SEG_W + SEG_GAP);
@@ -167,14 +172,13 @@ export class CatcherEnemy {
     }
   }
 
-  // ── Public API ──────────────────────────────────────────────────────────────
+  // ── Public API ────────────────────────────────────────────────────────────
 
   /**
    * Called by GameScene when the cat collides with an obstacle.
    *
-   *  crash 1 → catcher jumps to CATCH_UP_STEPS[1], gameplay continues
-   *  crash 2 → catcher jumps to CATCH_UP_STEPS[2], gameplay continues
-   *  crash 3 → final catch sequence → game restarts
+   *  crash 1 or 2 → move catcher catcherCatchUpStep px closer, continue play
+   *  crash 3      → _beginFinalCatch()
    */
   onObstacleHit() {
     if (this.catcherState !== 'run') return;
@@ -183,20 +187,18 @@ export class CatcherEnemy {
     this._activateBarSegment(this.crashCount - 1);
 
     if (this.crashCount >= MAX_CRASHES_BEFORE_CAUGHT) {
-      // ── Third crash: final catch ─────────────────────────────────────
       this._beginFinalCatch();
     } else {
-      // ── First / second crash: catch-up only ──────────────────────────
-      // Snap the catcher to the next closer stage (but never past minCatcherDistance).
-      const targetDistance = CATCH_UP_STEPS[this.crashCount];
-      this._distance = Math.max(MIN_CATCHER_DISTANCE, Math.min(this._distance, targetDistance));
-      // X will be applied on the next _updateCatcherMovement() call.
+      // Move closer by catcherCatchUpStep.
+      // minCatcherDistance is enforced AFTER this in _updateChasing(),
+      // not here, so the catch-up step is applied first (per spec).
+      this._distance = Math.max(0, this._distance - CATCHER_CATCH_UP_STEP);
     }
   }
 
   /**
    * Main update — called every frame by GameScene.
-   * @param {number}                    delta      Phaser delta ms
+   * @param {number}                    delta
    * @param {Phaser.GameObjects.Sprite} catSprite
    * @returns {boolean}  true → GameScene should restart
    */
@@ -228,77 +230,95 @@ export class CatcherEnemy {
     this._sprite.destroy();
   }
 
-  // ── Private ─────────────────────────────────────────────────────────────────
+  // ── Private ───────────────────────────────────────────────────────────────
 
   /**
-   * Full per-frame update for the 'run' (chasing) state.
+   * World-space ground check.
    *
-   * Frame order (per spec section 9):
-   *   1. Gravity / vertical velocity  — handled by Arcade physics before this call
-   *   2. Floor clamp                  — enforce SURFACE_Y as a hard ground floor
-   *   3. Resolve grounded state       — body.blocked.down OR at SURFACE_Y
+   * PlatformManager stores segments as { worldX, width } and tracks how many
+   * px have scrolled as _scrollOffset.  The catcher's world X =
+   *   _scrollOffset + sprite.x
+   *
+   * We check whether that world position overlaps any live segment.
+   * This mirrors exactly how PlatformManager enables/disables the cat's
+   * static floor body — same data, same logic, different screen position.
+   *
+   * @returns {boolean}  true if a platform segment is under the catcher
+   */
+  _isOverPlatform() {
+    const pm = this._scene._platforms;
+    if (!pm) return true; // fallback: treat as grounded if manager missing
+
+    const scrollPx       = Math.round(pm._scrollOffset);
+    const catcherWorldX  = scrollPx + this._sprite.x;
+    const segments       = pm._segments;
+
+    for (const seg of segments) {
+      if (catcherWorldX >= seg.worldX && catcherWorldX < seg.worldX + seg.width) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Full per-frame update for the 'run' state.
+   *
+   * Frame order (per spec):
+   *   1. Gravity / vertical velocity  — Arcade physics (runs before update())
+   *   2. World-space ground detection — _isOverPlatform()
+   *   3. Resolve grounded state
    *   4. Coyote window tick
-   *   5. Natural creep (horizontal)
-   *   6. _updateCatcherMovement()     — single authoritative X update
-   *   7. Enforce minCatcherDistance   — safety clamp after movement
-   *   8. Vertical bob (grounded only)
+   *   5. Natural creep (horizontal, _distance decreases slowly)
+   *   6. _updateCatcherMovement() — SINGLE authoritative X + velocityX=0
+   *   7. Enforce minCatcherDistance — AFTER all chase / catch-up calculations
+   *   8. Vertical snap / bob (grounded only)
    *   9. Jump input
-   *  10. _updateCatcherAnimation()
+   *  10. Body offset lock
+   *  11. _updateCatcherAnimation()
    */
   _updateChasing(delta) {
     const body = this._sprite.body;
 
-    // ── 2. Floor clamp ───────────────────────────────────────────────────────
-    // The catcher starts off-screen left (no platform tile exists at x ≈ −5).
-    // Without a tile, body.blocked.down is never true and gravity would drag
-    // the catcher off the canvas. Treat SURFACE_Y as an unconditional ground floor.
-    if (this._sprite.y >= SURFACE_Y) {
+    // ── 2. World-space ground detection ──────────────────────────────────
+    const overPlatform = this._isOverPlatform();
+
+    // ── 3. Resolve grounded state ────────────────────────────────────────
+    if (overPlatform && this._sprite.y >= SURFACE_Y) {
+      // Catcher has reached/passed the surface over a real platform → land.
       this._sprite.setY(SURFACE_Y);
       body.setVelocityY(0);
-      this.isGrounded = true;
-      this._coyoteMs  = 0;
-    }
 
-    // ── 3. Grounded state ────────────────────────────────────────────────────
-    const blockedBelow = body.blocked.down;
-    const atFloor      = this._sprite.y >= SURFACE_Y;
-
-    if (blockedBelow || atFloor) {
       if (!this.isGrounded) {
-        // Just landed.
         this.isGrounded = true;
         this._coyoteMs  = 0;
       }
-    } else {
-      if (this.isGrounded) {
-        // Just left the ground — open coyote window.
-        this._coyoteMs  = COYOTE_MS;
-        this.isGrounded = false;
-      }
+    } else if (!overPlatform && this.isGrounded) {
+      // Just walked off a platform edge → open coyote window, begin falling.
+      this.isGrounded = false;
+      this._coyoteMs  = COYOTE_MS;
     }
 
-    // ── 4. Coyote window ────────────────────────────────────────────────────
+    // ── 4. Coyote window ─────────────────────────────────────────────────
     if (this._coyoteMs > 0) {
       this._coyoteMs = Math.max(0, this._coyoteMs - delta);
     }
 
-    // ── 5. Natural creep ─────────────────────────────────────────────────────
-    this._distance = Math.max(
-      MIN_CATCHER_DISTANCE,
-      this._distance - CATCHUP_SPEED * (delta / 1000),
-    );
+    // ── 5. Natural creep ─────────────────────────────────────────────────
+    // Slow passive approach — minCatcherDistance enforced in step 7.
+    this._distance -= CATCHUP_SPEED * (delta / 1000);
 
-    // ── 6. Single X update ───────────────────────────────────────────────────
+    // ── 6. Single authoritative X update ────────────────────────────────
     this._updateCatcherMovement();
 
-    // ── 7. Enforce minCatcherDistance (safety clamp) ─────────────────────────
-    const maxAllowedX = CAT_X - MIN_CATCHER_DISTANCE;
-    if (this._sprite.x > maxAllowedX) {
-      this._sprite.setX(maxAllowedX);
+    // ── 7. Enforce minCatcherDistance AFTER all chase calculations ───────
+    // Applied here — never before — so catch-up steps are fully computed first.
+    if (this._distance < MIN_CATCHER_DISTANCE) {
       this._distance = MIN_CATCHER_DISTANCE;
+      this._sprite.setX(CAT_X - MIN_CATCHER_DISTANCE);
     }
 
-    // ── 8. Vertical bob (grounded only) ──────────────────────────────────────
+    // ── 8. Vertical snap / bob ───────────────────────────────────────────
     this._bobTime += delta;
     if (this.isGrounded) {
       const bobY = Math.sin(this._bobTime * BOB_SPEED) * BOB_AMPLITUDE;
@@ -306,10 +326,7 @@ export class CatcherEnemy {
       body.setVelocityY(0);
     }
 
-    // ── Body offset (re-apply each frame — Phaser anims may reset it) ────────
-    body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
-
-    // ── 9. Jump input ────────────────────────────────────────────────────────
+    // ── 9. Jump input ────────────────────────────────────────────────────
     const canJump = this.isGrounded || this._coyoteMs > 0;
     const keyDown = Phaser.Input.Keyboard.JustDown(this._keys.space);
     if (canJump && (keyDown || this._jumpRequested)) {
@@ -318,17 +335,20 @@ export class CatcherEnemy {
       this._coyoteMs  = 0;
       this._sprite.anims.stop();
       this._sprite.setFrame(2); // ascent frame
-      body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
     }
     this._jumpRequested = false;
 
-    // ── 10. Animation ────────────────────────────────────────────────────────
+    // ── 10. Body offset ───────────────────────────────────────────────────
+    body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
+
+    // ── 11. Animation ────────────────────────────────────────────────────
     this._updateCatcherAnimation(body);
   }
 
   /**
-   * Single authoritative horizontal position update.
-   * No other code path may modify this._sprite.x during the 'run' state.
+   * The ONLY place that sets this._sprite.x during the 'run' state.
+   * Zeroing velocityX prevents Arcade physics from accumulating any
+   * horizontal drift between frames.
    */
   _updateCatcherMovement() {
     this._sprite.setX(CAT_X - this._distance);
@@ -336,42 +356,40 @@ export class CatcherEnemy {
   }
 
   /**
-   * Drive catcher_run or airborne frame based on isGrounded / velocity.
-   * catcher_catch is never triggered here — only in _beginFinalCatch().
+   * Drive catcher_run (4-frame loop) or static airborne frames.
+   * catcher_catch is NEVER triggered here — only in _beginFinalCatch().
    */
   _updateCatcherAnimation(body) {
     if (this.isGrounded) {
-      // Grounded: ensure the 4-frame run loop is playing.
-      const current = this._sprite.anims.currentAnim;
-      if (!this._sprite.anims.isPlaying || current?.key !== 'catcher-run') {
+      const cur = this._sprite.anims.currentAnim;
+      if (!this._sprite.anims.isPlaying || cur?.key !== 'catcher-run') {
         this._sprite.play('catcher-run');
         body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
       }
     } else {
-      // Airborne: static frame (ascending = 2, descending = 3).
-      this._sprite.anims.stop();
+      // Airborne: show ascending (frame 2) or descending (frame 3) frame.
+      if (this._sprite.anims.isPlaying) {
+        this._sprite.anims.stop();
+      }
       this._sprite.setFrame(body.velocity.y < 0 ? 2 : 3);
       body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
     }
   }
 
   /**
-   * Triggered ONLY on the third crash (crashCount >= MAX_CRASHES_BEFORE_CAUGHT).
-   * Switches to catcher_catch (2-frame) animation and hides the cat.
+   * Triggered ONLY on crash 3 (crashCount >= MAX_CRASHES_BEFORE_CAUGHT).
+   * Switches to the 2-frame catcher_catch animation and hides the cat.
+   * catcher_catch is NEVER played during crashes 1 or 2.
    */
   _beginFinalCatch() {
     this.catcherState = 'catch';
     this.isCaught     = true;
     this._timer       = 0;
 
-    // Move catcher to cat position for the catch sequence.
     this._sprite.setX(CAT_X + 10);
     this._sprite.setDepth(CATCH_DEPTH);
+    this._sprite.play('catcher-catch'); // 2 frames, only here
 
-    // Play the 2-frame catch animation (NOT used during crashes 1 or 2).
-    this._sprite.play('catcher-catch');
-
-    // Hide the cat — it has been caught.
     if (this._catSprite) this._catSprite.setVisible(false);
   }
 
