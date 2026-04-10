@@ -152,9 +152,13 @@ export class CatPlayer {
     this._coyoteMs = 0; // consume any remaining coyote window
 
     // Signal to CatcherEnemy that a jump fired this frame.
-    // This flag is reset to false at the start of every update(), so it is
-    // true for exactly one frame per jump — independent of velocity values.
-    this.didJump = true;
+    // Set on BOTH the CatPlayer wrapper (this.didJump) AND the underlying
+    // Phaser sprite object (this._sprite.didJump) because GameScene passes
+    // this._cat.sprite (the raw sprite) to CatcherEnemy.update(), so the
+    // catcher reads the flag from the sprite, not the CatPlayer wrapper.
+    // Both are reset at the top of update() every frame.
+    this.didJump         = true;
+    this._sprite.didJump = true;
 
     this._sprite.anims.stop();
     this._sprite.setFrame(2); // ascent frame
@@ -170,7 +174,8 @@ export class CatPlayer {
   update(delta) {
     // Reset the jump signal each frame BEFORE any logic so the catcher always
     // sees exactly one true frame per jump, regardless of physics quirks.
-    this.didJump = false;
+    this.didJump         = false;
+    this._sprite.didJump = false; // also reset on the raw sprite (read by CatcherEnemy)
 
     const body     = this._sprite.body;
     const onGround = body.blocked.down;

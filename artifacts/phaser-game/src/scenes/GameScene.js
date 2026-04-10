@@ -144,6 +144,12 @@ export default class GameScene extends Phaser.Scene {
 
     // ── Catcher ───────────────────────────────────────────────────────────
     const catchDone = this._catcher.update(safeDelta, this._cat.sprite);
+
+    // Update the catcher's dedicated floor body for the next physics step.
+    // Must run AFTER catcher.update() so sprite.x reflects this frame's
+    // final X position (written inside _updateCatcherMovement).
+    this._platforms.updateCatcherFloor(this._catcher.sprite.x);
+
     if (catchDone) {
       this._cat.destroy();
       this._catcher.destroy();

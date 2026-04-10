@@ -1,0 +1,71 @@
+Fix the chaser (catcher) logic in my cat runner game. Do NOT rewrite the whole game — only fix and improve the existing logic.
+
+GOAL:
+The chaser must behave like a real character in the same world as the cat, with correct physics, collision, jumping, and controlled distance.
+
+CORE RULES:
+1. The chaser must NEVER move in front of or behind obstacles visually or logically.
+2. The chaser must use the EXACT SAME collision, platform, and ground detection system as the cat:
+   - same ground Y logic
+   - same obstacle collision
+   - same gap/hole handling
+   - same gravity and jump physics
+3. The chaser must NOT clip through obstacles.
+4. If the cat jumps and the chaser reaches the same obstacle, the chaser must also jump correctly.
+
+DISTANCE SYSTEM:
+5. The chaser must always stay behind the cat with a controlled distance (not too close).
+6. Create a distance system with constants:
+   - BASE_CHASE_DISTANCE
+   - CLOSE_CHASE_DISTANCE_1
+   - CLOSE_CHASE_DISTANCE_2
+   - MAX_CATCH_PROGRESS = 3
+7. Default: chaser stays at BASE_CHASE_DISTANCE behind the cat.
+
+CATCH PROGRESSION SYSTEM:
+8. Implement a strike/catch system:
+   - catchProgress = 0 at start
+   - cat hits obstacle → catchProgress = 1
+   - cat hits obstacle again → catchProgress = 2
+   - cat hits obstacle third time → catchProgress = 3 → trigger catch/game over
+9. On each cat mistake, the chaser gets closer in steps:
+   - 0 → safe distance
+   - 1 → slightly closer
+   - 2 → very close (but NOT touching)
+   - 3 → catch is triggered
+10. The chaser must NOT touch or catch the cat before catchProgress reaches 3.
+
+IMPORTANT BEHAVIOR:
+11. The chaser must NOT just visually follow (no fake positioning like x = cat.x - distance only).
+12. The chaser must have:
+   - its own position
+   - velocityY
+   - gravity
+   - jump state
+   - ground detection
+13. Both cat and chaser must share the same world physics and collision logic.
+14. Only difference: chaser follows behind with a controlled X offset.
+
+WHEN CAT MAKES A MISTAKE:
+15. Reduce the target distance step-by-step (not instantly overlapping).
+16. Keep the new smaller distance until the next mistake or reset.
+17. Do NOT allow instant overlap after the first or second mistake.
+
+IMPLEMENTATION REQUIREMENTS:
+18. Remove any old logic where the chaser:
+   - clips through obstacles
+   - ignores collisions
+   - teleports incorrectly
+   - appears in front/behind objects
+19. Refactor movement if necessary so both characters use the same physics system.
+
+ACCEPTANCE CRITERIA:
+- Chaser never appears in front or behind obstacles
+- Chaser jumps correctly using same physics as cat
+- Chaser maintains proper distance at all times
+- Distance reduces only in 2 steps before catch
+- Catch happens ONLY at catchProgress = 3
+- No early collision or instant catching
+
+FINAL STEP:
+After fixing, output the cleaned code and explain in 5 short bullet points what was fixed.

@@ -26,19 +26,29 @@ const SURFACE_Y  = PLATFORM_Y + Math.round(CROP_TOP * TILE_SCALE); // 195
 // Moving Phaser StaticBodies every frame corrupts the static broadphase tree,
 // causing the cat to fall through visually correct platforms.
 //
-// Solution: ONE permanently-placed static floor body, fixed at the cat's
-// pinned screen X (CAT_SCREEN_X). Each frame we simply ENABLE it when the
-// cat's world-space X is inside a platform segment, or DISABLE it when the
-// cat is over a gap. The body never moves — zero broadphase issues.
+// Solution: ONE permanently-placed static floor body per character, fixed at
+// that character's pinned screen-X range. Each frame we simply ENABLE it when
+// the character's world-space X is inside a platform segment, or DISABLE it
+// when the character is over a gap. The bodies never move — zero broadphase
+// issues.
 //
-// CAT_SCREEN_X must match CatPlayer.CAT_X (80 px).
-// FLOOR_W is slightly wider than the cat's physics body (36 px) so diagonal
-// contact at the segment edge still registers.
+// Cat floor: centred at CAT_SCREEN_X (80). Catcher floor: covers the
+// catcher's full possible screen-X range (CAT_X − START_DIST to
+// CAT_X − MIN_DIST = −10 to 40), placed in a SEPARATE static group so the
+// cat's collider never interacts with the catcher's floor and vice-versa.
 // ---------------------------------------------------------------------------
 const CAT_SCREEN_X = 80;
-const FLOOR_W      = 80;  // wider than the 36-px cat body
-const FLOOR_H      = 8;   // same height as the old per-segment bodies
+const FLOOR_W      = 80;   // wider than the cat's physics body
+const FLOOR_H      = 8;    // same height as the old per-segment bodies
 const GROUND_DEPTH = 9;
+
+// Catcher floor: fixed rectangle covering every screen-X the catcher can
+// occupy.  Catcher body left ≈ sprite.x − 10, right ≈ sprite.x + 18.
+// sprite.x range: −10 (start) to 40 (minimum distance).
+// So body x range: −20 to 58.  We use a generous 110-px-wide body centred
+// at x = 10, covering x = −45 to x = 65.
+const CATCHER_FLOOR_CENTER_X = 10;
+const CATCHER_FLOOR_W        = 110;
 
 // ---------------------------------------------------------------------------
 // Scroll / generation constants
@@ -138,6 +148,21 @@ export class PlatformManager {
     this._floor.body.reset(CAT_SCREEN_X - FLOOR_W / 2, SURFACE_Y);
     this._group.add(this._floor);
 
+    // ── Catcher floor body — separate group, covers catcher's X range ───────
+    // Same design as the cat floor: permanently fixed, never repositioned.
+    // CatcherEnemy registers its own one-way collider against this group.
+    // GameScene calls updateCatcherFloor() each frame to enable / disable it.
+    this._catcherGroup = scene.physics.add.staticGroup();
+    this._catcherFloor = scene.physics.add.staticImage(
+      CATCHER_FLOOR_CENTER_X, SURFACE_Y, "__ground_px"
+    );
+    this._catcherFloor.setOrigin(0.5, 0);
+    this._catcherFloor.setAlpha(0);
+    this._catcherFloor.setDepth(GROUND_DEPTH);
+    this._catcherFloor.body.setSize(CATCHER_FLOOR_W, FLOOR_H);
+    this._catcherFloor.body.reset(CATCHER_FLOOR_CENTER_X - CATCHER_FLOOR_W / 2, SURFACE_Y);
+    this._catcherGroup.add(this._catcherFloor);
+
     // ── Seed enough segments to fill canvas + buffer ───────────────────────
     const canvasW = scene.scale.width;
     while (this._getRightWorldEdge() < canvasW + SPAWN_AHEAD) {
@@ -150,8 +175,34 @@ export class PlatformManager {
   /** The static physics group — pass to CatPlayer for the collider. */
   get group() { return this._group; }
 
+  /** Separate static group for the catcher — pass to CatcherEnemy for its collider. */
+  get catcherGroup() { return this._catcherGroup; }
+
   /** World Y of the walkable brick surface. */
   get surfaceY() { return SURFACE_Y; }
+
+  /**
+   * Enable or disable the catcher's dedicated floor body based on whether
+   * the catcher's current screen-X position falls over a platform segment.
+   *
+   * Call every frame from GameScene.update() AFTER catcher.update() has
+   * written the catcher sprite's final X for this frame.
+   *
+   * @param {number} catcherScreenX  Current screen X of the catcher sprite.
+   */
+  updateCatcherFloor(catcherScreenX) {
+    const scrollPx      = Math.round(this._scrollOffset);
+    const catcherWorldX = scrollPx + catcherScreenX;
+    let onPlatform = false;
+    for (const seg of this._segments) {
+      // Same overlap test as the cat: catcher body centre point inside segment.
+      if (catcherWorldX >= seg.worldX && catcherWorldX < seg.worldX + seg.width) {
+        onPlatform = true;
+        break;
+      }
+    }
+    this._catcherFloor.body.enable = onPlatform;
+  }
 
   /** Call every frame from GameScene.update(). */
   update(delta) {
