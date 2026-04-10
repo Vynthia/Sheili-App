@@ -1,0 +1,294 @@
+IMPORTANT: The implementation is still not correct. Some issues were improved, but several critical problems remain.
+
+What is already fixed:
+- the catcher no longer jitters
+- the third-crash catch logic works better
+
+However, the game still has major gameplay and logic errors.
+
+Please fix the remaining issues EXACTLY as described below. Do not use visual tricks, teleport corrections, fake follower logic, or hidden respawn shortcuts.
+
+==================================================
+REMAINING CRITICAL PROBLEMS
+==================================================
+
+1. The catcher still runs directly into the cat with no visible distance
+2. The catcher still runs behind / through obstacles instead of being blocked by them properly
+3. The catcher still does not jump properly when terrain requires it
+4. The catcher falls into gaps, disappears, and then reappears behind the cat
+5. The game is extremely slow and not fluid at the beginning, then later returns to normal speed
+
+These issues must now be fixed properly in the actual code logic.
+
+==================================================
+1. HARD MINIMUM DISTANCE MUST ALWAYS BE ENFORCED
+==================================================
+
+The catcher still gets too close to the cat and visually runs into it.
+
+This is NOT allowed.
+
+Define and enforce a hard rule:
+
+    catcher.x <= cat.x - minCatcherDistance
+
+This must be applied AFTER all movement, chase logic, catch-up logic, and correction logic.
+
+IMPORTANT:
+- this must be a hard clamp, not a soft target
+- this must run every frame during normal gameplay
+- the catcher must never visually overlap the cat before the final catch event
+- crash 1 and crash 2 must still preserve a visible gap
+- only the final catch state on crash 3 may break the normal follow distance
+
+If needed, clamp the catcher position at the very end of the catcher update step.
+
+==================================================
+2. THE CATCHER MUST NOT GO THROUGH / BEHIND OBSTACLES
+==================================================
+
+The catcher is still bypassing obstacles incorrectly.
+
+That must stop.
+
+Required behavior:
+- the catcher must collide with solid obstacles the same way the cat does
+- the catcher must not move behind obstacles to bypass them
+- the catcher must not phase through blocked geometry
+- the catcher must not ignore obstacle collision while chasing
+- if the obstacle blocks the cat, it must also block the catcher
+
+IMPORTANT:
+Use the same solid collision logic / collision masks / hitboxes for both cat and catcher.
+
+If there is any special code that lets the catcher ignore terrain or obstacle blocking, remove it.
+
+==================================================
+3. THE CATCHER MUST JUMP WHEN TERRAIN REQUIRES IT
+==================================================
+
+The catcher still does not jump correctly.
+
+The catcher must not just follow horizontally.
+It must behave like a real runner in the same level.
+
+Required behavior:
+- if the catcher reaches an obstacle that requires a jump, it must jump properly
+- if the catcher reaches a gap, it must either jump correctly or fall naturally
+- if the cat needs to jump because of terrain, the catcher must also need to obey terrain
+
+IMPORTANT:
+- do not mirror the cat jump with a delayed copy
+- do not use fake delayed jumping
+- use actual terrain-aware movement decisions
+- the catcher must use real jump physics, not visual imitation
+
+==================================================
+4. DO NOT TELEPORT / RESPAWN THE CATCHER BEHIND THE CAT
+==================================================
+
+Currently the catcher can fall into a gap, disappear, and then reappear behind the cat.
+
+This is NOT allowed.
+
+Remove any logic that:
+- respawns the catcher behind the cat after falling
+- teleports the catcher back into place
+- resets the catcher position as a catch-up shortcut
+- treats the catcher as a decorative follower instead of a real level entity
+
+REQUIRED RULE:
+The catcher must remain a real physical entity in the level at all times.
+
+That means:
+- if it falls, it falls normally
+- if it lands, it lands normally
+- if it fails a jump, it suffers the normal world consequence
+- it must not vanish and respawn behind the player
+
+If you need recovery logic, it must still respect world logic and must not look like a teleport cheat.
+
+==================================================
+5. THE CATCHER MUST USE THE SAME REAL WORLD RULES AS THE CAT
+==================================================
+
+This is still not fully implemented.
+
+The catcher must obey the same gameplay rules as the cat:
+- same gravity
+- same floor collision
+- same platform collision
+- same obstacle collision
+- same gap behavior
+- same jump / fall / land logic
+- same grounded rules
+
+The catcher must exist in the same physical level space as the cat.
+
+It must not be:
+- a fake follow sprite
+- a shortcut chase object
+- a teleporting proxy
+- a special-case enemy that ignores world geometry
+
+If possible, use the same controller architecture as the cat and only allow different tuning values such as:
+- speed
+- AI decision timing
+- target distance
+
+==================================================
+6. FIX THE VERY SLOW GAME START / INITIAL PERFORMANCE SPIKE
+==================================================
+
+A major new problem now exists:
+
+At the beginning of the run, the game is extremely slow and not fluid.
+Then after a short time it becomes normal speed.
+
+This must be fixed.
+
+Please investigate and remove the cause of the startup lag.
+
+Possible causes to check:
+- expensive asset loading or sprite processing during the first active frames
+- repeated animation setup inside update loops
+- repeated image/sprite sheet parsing at runtime
+- too many objects spawned at once on game start
+- collision structures built repeatedly during first frames
+- excessive logging / console spam
+- repeated recalculation of terrain data
+- multiple loops running at the same time
+- duplicated update calls during initialization
+- delta time spike not handled correctly
+- enemy catch-up / path logic doing excessive work at the beginning
+- large arrays or obstacle lists created or sorted every frame at startup
+
+REQUIRED FIXES:
+- preload all animations and sprite sheets before gameplay begins
+- do not recreate animation definitions during gameplay
+- do not rebuild expensive structures every frame
+- do not run duplicate update loops
+- ensure the first seconds of gameplay are just as smooth as the rest
+- if delta time spikes on first frames, clamp or stabilize it safely
+
+Expected result:
+- the game must be fluid immediately from the beginning
+- no extreme slow-motion start
+- no temporary startup lag
+
+==================================================
+7. KEEP THE THINGS THAT ARE ALREADY WORKING
+==================================================
+
+Do NOT break the parts that are already improved:
+
+- the catcher should still not jitter
+- the third crash should still be the final catch trigger
+- the catcher should still not fall through the floor at the initial spawn
+
+==================================================
+8. CLEAN UPDATE ORDER
+==================================================
+
+Use a clean frame update order for both cat and catcher:
+
+1. apply gravity
+2. update vertical velocity
+3. move vertically
+4. resolve ground/platform collisions
+5. update grounded state
+6. resolve obstacle collisions
+7. decide jump / movement behavior
+8. move horizontally
+9. enforce hard minimum catcher distance
+10. update animation state
+11. render
+
+IMPORTANT:
+- do not skip world collision for the catcher
+- do not clamp distance before all movement is finished
+- enforce min distance near the end of the catcher update
+- do not allow any later code to overwrite that clamp
+
+==================================================
+9. REQUIRED VARIABLES / RULES
+==================================================
+
+Use or keep clear variables such as:
+
+- crashCount
+- maxCrashesBeforeCaught = 3
+- minCatcherDistance
+- catcherCatchUpStep
+- velocityY
+- isGrounded
+- catcherState
+- isCaught
+
+Keep these animation assets:
+- catcher_run = 4 frames
+- catcher_catch = 2 frames
+
+Normal chase:
+- use catcher_run
+
+Final catch on crash 3:
+- use catcher_catch
+
+==================================================
+10. SUCCESS CONDITIONS
+==================================================
+
+After this fix, ALL of the following must be true:
+
+1. The catcher does not jitter
+2. The catcher never overlaps the cat before the final catch
+3. A visible gap always remains between cat and catcher
+4. The catcher cannot run through or behind obstacles
+5. The catcher jumps properly when terrain requires it
+6. The catcher does not fake delayed copy-jumps
+7. The catcher does not disappear and respawn behind the cat
+8. The catcher remains a real physical entity in the level
+9. The game is smooth immediately at startup
+10. The game does not begin in extreme slow motion
+11. The third crash still triggers the final catch correctly
+12. catcher_run still uses 4 frames
+13. catcher_catch still uses 2 frames
+
+==================================================
+11. IMPORTANT FINAL WARNING
+==================================================
+
+Do NOT use fake follow logic.
+Do NOT teleport the catcher back behind the cat.
+Do NOT let the catcher bypass terrain.
+Do NOT hide the bugs visually.
+Do NOT patch the issue with temporary resets.
+
+I want a real code fix in:
+- enemy physics
+- enemy obstacle handling
+- enemy jump logic
+- distance enforcement
+- startup performance
+- world interaction rules
+
+==================================================
+12. AFTER IMPLEMENTATION
+==================================================
+
+After finishing, briefly explain:
+- which files you changed
+- which functions you changed
+- where the hard min distance is enforced
+- how you prevented overlap
+- how you stopped the catcher from going through/behind obstacles
+- how the catcher now decides when to jump
+- how you removed the teleport/reappear behavior
+- what caused the slow startup and how you fixed it
+
+IMPORTANT:
+The minimum distance must be enforced at the END of the catcher movement update, after chase movement and catch-up logic. No later code may overwrite catcher.x after that final clamp.
+
+IMPORTANT:
+Check whether animations, sprite sheets, obstacle data, or collision structures are being created or recalculated during the first gameplay frames. These must be prepared before active gameplay starts, not during the run.
