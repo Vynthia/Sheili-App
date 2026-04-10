@@ -76,6 +76,12 @@ export class CatPlayer {
     // Consumed once per update() — set by the pointerdown listener below.
     this._jumpRequested = false;
 
+    // Set to true for exactly one frame when a jump fires.
+    // CatcherEnemy reads this each frame to mirror the jump reliably.
+    // Reset to false at the very start of update(), BEFORE any logic runs,
+    // so the catcher always reads the value from the current frame only.
+    this.didJump = false;
+
     // Active hit-feedback tweens (null when idle).
     this._squishTween  = null;
     this._flickerTween = null;
@@ -145,6 +151,11 @@ export class CatPlayer {
     this._state    = 'airborne';
     this._coyoteMs = 0; // consume any remaining coyote window
 
+    // Signal to CatcherEnemy that a jump fired this frame.
+    // This flag is reset to false at the start of every update(), so it is
+    // true for exactly one frame per jump — independent of velocity values.
+    this.didJump = true;
+
     this._sprite.anims.stop();
     this._sprite.setFrame(2); // ascent frame
     body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y); // re-apply after setFrame
@@ -157,6 +168,10 @@ export class CatPlayer {
    * @param {number} delta  Phaser delta ms.
    */
   update(delta) {
+    // Reset the jump signal each frame BEFORE any logic so the catcher always
+    // sees exactly one true frame per jump, regardless of physics quirks.
+    this.didJump = false;
+
     const body     = this._sprite.body;
     const onGround = body.blocked.down;
 

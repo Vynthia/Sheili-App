@@ -19,13 +19,20 @@
 //
 // JUMP RULE — mirror the cat, nothing else
 // ─────────────────────────────────────────
-// Every frame we read the cat physics body's velocityY.  The instant it
-// flips from ≥ 0 to < 0 (the cat just launched a jump), the catcher fires
-// an identical JUMP_VEL impulse — no terrain AI, no lookahead, no delay.
+// CatPlayer exposes `didJump` — a boolean flag set to true for exactly one
+// frame inside _doJump(), then reset to false at the start of each update().
+// CatcherEnemy reads it here (after CatPlayer.update() has already run this
+// frame) for a 100 % reliable, zero-ambiguity jump signal.
 //
-// Why this is correct:
-//   • The catcher is behind the cat (lower screen X), so every gap / obstacle
-//     arrives at the catcher's position AFTER it arrives at the cat's position.
+// Why velocity-transition detection was replaced:
+//   Phaser's Arcade physics can leave body.velocity.y at a tiny negative
+//   value (−0.1 to −2) on some grounded frames due to gravity overshoot
+//   before the collider fires.  This caused the velocity "rising edge"
+//   detector to fail intermittently, silently skipping catcher jumps.
+//
+// Why mirroring is geometrically correct:
+//   • The catcher is behind the cat, so every gap / obstacle arrives at
+//     the catcher's position AFTER it arrives at the cat's position.
 //   • The jump arc lasts ≈ 0.84 s; the gap/obstacle reaches the catcher
 //     0.07–0.53 s after the cat jumped — always while the catcher is still
 //     airborne.  The catcher clears every terrain feature the cat cleared.
@@ -56,7 +63,7 @@ const SURFACE_Y = 195;  // Ground surface Y — feet / origin-bottom
 
 // ── Render ────────────────────────────────────────────────────────────────────
 const CATCHER_SCALE = 0.5;  // 128×128 source → 64×64 display
-const CHASE_DEPTH   = 22;  // above cat (20) so it doesn't hide under obstacles while jumping
+const CHASE_DEPTH   = 31;  // above obstacles (30) so the catcher is always fully visible
 const CATCH_DEPTH   = 25;
 
 // ── Physics (same values as CatPlayer) ───────────────────────────────────────
@@ -119,10 +126,6 @@ export class CatcherEnemy {
     // isGrounded = true from construction so the catcher never falls on frame 1.
     this.isGrounded = true;
     this._coyoteMs  = 0;
-
-    // Previous-frame cat velocityY — used to detect the exact frame the cat
-    // launches a jump (transition from ≥ 0 to < 0).
-    this._prevCatVelY = 0;
 
     // ── Distance tracking ────────────────────────────────────────────────
     // _distance: how many px the catcher is behind the cat.
@@ -327,23 +330,15 @@ export class CatcherEnemy {
     }
 
     // ── 10. Cat-mirror jump ───────────────────────────────────────────────
-    // Read the cat's current velocityY and compare to previous frame.
-    // The instant the cat's velocity flips from ≥ 0 to < 0, the cat has
-    // just launched a jump.  The catcher fires the same impulse immediately.
+    // CatPlayer sets didJump = true for exactly ONE frame per jump (in
+    // _doJump()) and resets it to false at the top of every update() call.
+    // Reading it here — after this._cat.update() has already run — gives a
+    // 100 % reliable, frame-perfect signal with no velocity-detection quirks.
     //
-    // No terrain AI, no lookahead, no delay — only and exactly when the
-    // player presses jump.
-    //
-    // NOTE: canJump guard is intentionally absent.  If the catcher is
-    // falling into a gap when the cat jumps (coyote window already expired),
-    // it still needs the corrective jump impulse to clear the gap.
-    // Since the cat can only jump from the ground (single-jump), there is
-    // no risk of the catcher being fired twice from a single arc.
-    const catVelY       = this._catSprite?.body?.velocity?.y ?? 0;
-    const catJustJumped = catVelY < 0 && this._prevCatVelY >= 0;
-    this._prevCatVelY   = catVelY;
-
-    if (catJustJumped) {
+    // No canJump guard: if the catcher is mid-fall into a gap when the cat
+    // jumps, it still needs the corrective impulse.  Since the cat can only
+    // jump from the ground (single-jump), there is no risk of double-firing.
+    if (this._catSprite?.didJump) {
       body.setVelocityY(JUMP_VEL);
       this.isGrounded = false;
       this._coyoteMs  = 0;
