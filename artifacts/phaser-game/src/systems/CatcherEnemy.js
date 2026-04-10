@@ -56,7 +56,7 @@ const SURFACE_Y = 195;  // Ground surface Y — feet / origin-bottom
 
 // ── Render ────────────────────────────────────────────────────────────────────
 const CATCHER_SCALE = 0.5;  // 128×128 source → 64×64 display
-const CHASE_DEPTH   = 15;
+const CHASE_DEPTH   = 22;  // above cat (20) so it doesn't hide under obstacles while jumping
 const CATCH_DEPTH   = 25;
 
 // ── Physics (same values as CatPlayer) ───────────────────────────────────────
@@ -333,12 +333,17 @@ export class CatcherEnemy {
     //
     // No terrain AI, no lookahead, no delay — only and exactly when the
     // player presses jump.
-    const catVelY     = this._catSprite?.body?.velocity?.y ?? 0;
+    //
+    // NOTE: canJump guard is intentionally absent.  If the catcher is
+    // falling into a gap when the cat jumps (coyote window already expired),
+    // it still needs the corrective jump impulse to clear the gap.
+    // Since the cat can only jump from the ground (single-jump), there is
+    // no risk of the catcher being fired twice from a single arc.
+    const catVelY       = this._catSprite?.body?.velocity?.y ?? 0;
     const catJustJumped = catVelY < 0 && this._prevCatVelY >= 0;
-    this._prevCatVelY = catVelY;
+    this._prevCatVelY   = catVelY;
 
-    const canJump = this.isGrounded || this._coyoteMs > 0;
-    if (catJustJumped && canJump) {
+    if (catJustJumped) {
       body.setVelocityY(JUMP_VEL);
       this.isGrounded = false;
       this._coyoteMs  = 0;
