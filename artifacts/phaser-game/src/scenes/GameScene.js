@@ -114,6 +114,11 @@ export default class GameScene extends Phaser.Scene {
     // ── Collision / hit state ─────────────────────────────────────────────
     this._collisionGrace = 1500; // ms grace period after spawn
     this._hitCooldown    = 0;    // ms per-hit invincibility window
+
+    // Duration of the invincibility window after each hit.
+    // CatPlayer.triggerHit() uses the same value so the flicker ends exactly
+    // when the window closes — giving the player a clear "safe again" cue.
+    this._HIT_COOLDOWN_MS = 1200;
   }
 
   update(_time, delta) {
@@ -161,8 +166,26 @@ export default class GameScene extends Phaser.Scene {
       this._obstacles.collision
     ) {
       this._obstacles.collision = false;
+
+      // ── Hit feedback ──────────────────────────────────────────────────
+      // Camera shake — short, sharp jolt so the player feels the impact.
+      this.cameras.main.shake(180, 0.009);
+
+      // Cat squish + alpha flicker for the full invincibility window.
+      // Flicker duration matches _HIT_COOLDOWN_MS so it stops the exact
+      // moment the cat becomes vulnerable again.
+      this._cat.triggerHit(this._HIT_COOLDOWN_MS);
+
+      // ── Pressure system ───────────────────────────────────────────────
+      // Move the catcher closer (crash 1 & 2) or trigger the final catch
+      // sequence (crash 3).  The catcher manages its own state machine;
+      // calling this on crash 3 starts the "catcher_catch" animation and
+      // hides the cat sprite, then GameScene.update() receives true next
+      // frame and calls scene.restart().
       this._catcher.onObstacleHit();
-      this._hitCooldown = 1500;
+
+      // Block further hits for the cooldown window.
+      this._hitCooldown = this._HIT_COOLDOWN_MS;
     }
   }
 }

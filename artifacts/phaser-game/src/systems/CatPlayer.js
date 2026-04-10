@@ -76,6 +76,10 @@ export class CatPlayer {
     // Consumed once per update() — set by the pointerdown listener below.
     this._jumpRequested = false;
 
+    // Active hit-feedback tweens (null when idle).
+    this._squishTween  = null;
+    this._flickerTween = null;
+
     // ── Animation (register once) ──────────────────────────────────────────
     if (!scene.anims.exists("cat-run")) {
       scene.anims.create({
@@ -212,6 +216,61 @@ export class CatPlayer {
 
     // Consume the pointer flag so it doesn't repeat next frame.
     this._jumpRequested = false;
+  }
+
+  /**
+   * Called by GameScene on every accepted obstacle hit (crashes 1–3).
+   *
+   * Effects:
+   *  • Scale squish  — quick compress-then-restore on the sprite so the
+   *    impact has weight.  Lasts ~250 ms.
+   *  • Alpha flicker — the sprite pulses between full and 30 % opacity for
+   *    the duration of the hit-cooldown window (1 200 ms).  This communicates
+   *    both "you were hit" and "you are temporarily safe from another hit".
+   *
+   * Tweens are stopped before starting so rapid hits don't stack badly.
+   *
+   * @param {number} [cooldownMs=1200]  Duration of the flicker (ms).
+   *                                    Should match GameScene._hitCooldown.
+   */
+  triggerHit(cooldownMs = 1200) {
+    const scene  = this._scene;
+    const sprite = this._sprite;
+
+    // ── Scale squish (impact feel) ─────────────────────────────────────
+    if (this._squishTween) {
+      this._squishTween.stop();
+      sprite.setScale(CAT_SCALE);
+    }
+    this._squishTween = scene.tweens.add({
+      targets:  sprite,
+      scaleX:   { from: CAT_SCALE * 0.65, to: CAT_SCALE },
+      scaleY:   { from: CAT_SCALE * 1.35, to: CAT_SCALE },
+      ease:     'Back.Out',
+      duration: 250,
+      onComplete: () => { this._squishTween = null; },
+    });
+
+    // ── Alpha flicker (invincibility indicator) ────────────────────────
+    if (this._flickerTween) {
+      this._flickerTween.stop();
+      sprite.setAlpha(1);
+    }
+    // Pulse for cooldownMs, then restore full opacity.
+    const pulseDuration = 120; // ms per half-cycle
+    const repeats       = Math.floor(cooldownMs / (pulseDuration * 2));
+    this._flickerTween  = scene.tweens.add({
+      targets:  sprite,
+      alpha:    { from: 1, to: 0.25 },
+      ease:     'Linear',
+      duration: pulseDuration,
+      yoyo:     true,
+      repeat:   repeats,
+      onComplete: () => {
+        sprite.setAlpha(1);
+        this._flickerTween = null;
+      },
+    });
   }
 
   get sprite() { return this._sprite; }
