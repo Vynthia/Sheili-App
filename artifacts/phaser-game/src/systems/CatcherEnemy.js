@@ -191,8 +191,25 @@ export class CatcherEnemy {
     switch (this._state) {
 
       case 'chasing': {
-        const body     = this._sprite.body;
-        const onGround = body.blocked.down;
+        const body = this._sprite.body;
+
+        // ── Floor clamp ─────────────────────────────────────────────────
+        // The catcher may start off-screen left where no platform tile
+        // exists. Without a tile, body.blocked.down is never true and
+        // gravity pulls the catcher off the bottom of the canvas.
+        // Clamp Y to SURFACE_Y so the catcher always has a visible floor.
+        if (this._sprite.y >= SURFACE_Y && this._jumpState === 'airborne') {
+          this._sprite.setY(SURFACE_Y);
+          body.setVelocityY(0);
+          this._jumpState = 'running';
+          this._coyoteMs  = 0;
+          this._sprite.play('catcher-run');
+          body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
+        }
+
+        // Count as "on ground" if the physics body is blocked below OR if
+        // the sprite has been clamped to the surface already.
+        const onGround = body.blocked.down || this._sprite.y >= SURFACE_Y;
 
         // ── Horizontal position ─────────────────────────────────────────
         // Creep slowly closer; never advance past a safe minimum gap so the
@@ -200,18 +217,13 @@ export class CatcherEnemy {
         const MIN_DISTANCE = 14;
         this._distance = Math.max(MIN_DISTANCE, this._distance - CATCHUP_SPEED * (delta / 1000));
 
-        // Keep horizontal velocity at zero — X is driven manually.
-        this._sprite.body.setVelocityX(0);
+        // X and horizontal velocity are managed manually.
+        this._sprite.setX(CAT_X - this._distance);
+        body.setVelocityX(0);
 
         // ── Vertical bob ────────────────────────────────────────────────
-        // Add a gentle sine-wave offset so the catcher doesn't feel locked
-        // to the exact same height as the cat.  Physics Y is separate; this
-        // is a display-only nudge applied after physics resolves.
         this._bobTime += delta;
         const bobY = Math.sin(this._bobTime * BOB_SPEED) * BOB_AMPLITUDE;
-
-        this._sprite.setX(CAT_X - this._distance);
-        // Only bob when on the ground (looks odd while airborne).
         if (this._jumpState === 'running') {
           this._sprite.setY(SURFACE_Y + bobY);
         }
@@ -247,8 +259,8 @@ export class CatcherEnemy {
         }
 
         // ── Jump input ──────────────────────────────────────────────────
-        const canJump  = onGround || this._coyoteMs > 0;
-        const keyDown  = Phaser.Input.Keyboard.JustDown(this._keys.space);
+        const canJump = onGround || this._coyoteMs > 0;
+        const keyDown = Phaser.Input.Keyboard.JustDown(this._keys.space);
         if (canJump && (keyDown || this._jumpRequested)) {
           body.setVelocityY(JUMP_VEL);
           this._jumpState = 'airborne';
