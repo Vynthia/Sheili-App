@@ -63,7 +63,7 @@ const SURFACE_Y = 195;  // Ground surface Y — feet / origin-bottom
 
 // ── Render ────────────────────────────────────────────────────────────────────
 const CATCHER_SCALE = 0.5;  // 128×128 source → 64×64 display
-const CHASE_DEPTH   = 31;  // above obstacles (30) so the catcher is always fully visible
+const CHASE_DEPTH   = 20;  // same layer as the cat — obstacles (30) always render in front of both
 const CATCH_DEPTH   = 25;
 
 // ── Physics (same values as CatPlayer) ───────────────────────────────────────
