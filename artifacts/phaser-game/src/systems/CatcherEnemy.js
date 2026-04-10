@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// CatcherEnemy — physics-correct, terrain-aware chasing enemy.
+// CatcherEnemy — chasing enemy that mirrors the cat's jumps exactly.
 //
 // ARCHITECTURE
 // ────────────
@@ -17,35 +17,38 @@
 // Horizontal X is managed MANUALLY — one authoritative update per frame in
 // _updateCatcherMovement(), called after min-distance is clamped.
 //
-// JUMP DECISIONS (terrain-aware, no player-input mirroring)
-// ─────────────────────────────────────────────────────────
-// _shouldJump() inspects the live segment list and obstacle list to decide
-// whether a jump is needed at the catcher's OWN screen position:
-//   • Gap ahead   — no segment covers the lookahead world-X → jump now
-//   • In gap now  — no platform under catcher + coyote still active → jump
-//   • Obstacle    — ground obstacle within screen-space lookahead → jump
+// JUMP RULE — mirror the cat, nothing else
+// ─────────────────────────────────────────
+// Every frame we read the cat physics body's velocityY.  The instant it
+// flips from ≥ 0 to < 0 (the cat just launched a jump), the catcher fires
+// an identical JUMP_VEL impulse — no terrain AI, no lookahead, no delay.
 //
-// This makes the catcher a real terrain-obeying runner, not a follower.
+// Why this is correct:
+//   • The catcher is behind the cat (lower screen X), so every gap / obstacle
+//     arrives at the catcher's position AFTER it arrives at the cat's position.
+//   • The jump arc lasts ≈ 0.84 s; the gap/obstacle reaches the catcher
+//     0.07–0.53 s after the cat jumped — always while the catcher is still
+//     airborne.  The catcher clears every terrain feature the cat cleared.
+//   • No spurious autonomous jumps — the catcher only jumps when the player
+//     actually presses jump.
 //
 // STATE MACHINE
 // ─────────────
-//   catcherState = 'run'   → chasing; real physics + terrain
+//   catcherState = 'run'   → chasing; real physics + cat-mirror jump
 //   catcherState = 'catch' → final catch animation (crash 3 ONLY)
 //   catcherState = 'done'  → GameScene should restart
 //
 // CRASH SYSTEM
 // ────────────
-//   crash 1 → catcher moves catcherCatchUpStep px closer, cat survives
-//   crash 2 → catcher moves catcherCatchUpStep px closer, cat survives
+//   crash 1 → catcher moves CATCHER_CATCH_UP_STEP px closer, cat survives
+//   crash 2 → same; cat survives
 //   crash 3 → _beginFinalCatch() → catcher_catch plays → restart
 //
 // MINIMUM DISTANCE
 // ────────────────
-//   Enforced as a hard clamp on _distance BEFORE _updateCatcherMovement(),
-//   so no subsequent code can override it in the same frame.
+//   Hard clamp on _distance applied BEFORE _updateCatcherMovement() every
+//   frame so no later code can override it in the same frame.
 // ---------------------------------------------------------------------------
-
-import Phaser from "phaser";
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 const CAT_X     = 80;   // Cat's fixed screen X (must match CatPlayer)
@@ -58,7 +61,7 @@ const CATCH_DEPTH   = 25;
 
 // ── Physics (same values as CatPlayer) ───────────────────────────────────────
 const GRAVITY_Y = 900;   // px / s²
-const JUMP_VEL  = -380;  // px / s  (upward)
+const JUMP_VEL  = -380;  // px / s (upward — identical to cat)
 const COYOTE_MS = 150;   // ms of extra jump window after leaving platform edge
 
 // ── Hitbox (same geometry as cat) ────────────────────────────────────────────
@@ -68,30 +71,16 @@ const BODY_OFFSET_X = 22;
 const BODY_OFFSET_Y = 76;
 
 // ── Chase behaviour ───────────────────────────────────────────────────────────
-// Passive creep: catcher slowly closes the gap between crashes.
-const CATCHUP_SPEED = 3; // px / s
+const CATCHUP_SPEED        = 3;  // px / s  — passive creep between crashes
+const CATCHER_CATCH_UP_STEP = 20; // px closer on each of crashes 1 & 2
 
-// How many px closer the catcher snaps on each of the first two crashes.
-const CATCHER_CATCH_UP_STEP = 20; // px per crash
-
-// Hard lower bound for _distance, enforced every frame BEFORE setX.
-// cat.displayWidth = 64 px (128 × 0.5), origin centre → half = 32 px.
-// At MIN = 40: catcher right edge (catcher.x + 32) = (80-40)+32 = 72,
-//              cat left edge (80-32) = 48  → 24 px clear gap. Visible.
+// Hard lower bound for _distance, enforced BEFORE setX every frame.
+// At MIN = 40: catcher right-edge (catcher.x + 32) = 72,
+//              cat left-edge (80 − 32) = 48  →  24 px clear gap.
 const MIN_CATCHER_DISTANCE = 40; // px
 
 // Starting distance — catcher barely peeking in from the left edge.
-const START_DISTANCE = 90; // px  →  catcher.x = 80-90 = -10 (just off screen)
-
-// ── Terrain-aware jump lookahead ─────────────────────────────────────────────
-// GAP_LOOKAHEAD_WORLD: world-space px ahead to check for missing ground.
-// Jump takes ≈ 0.42 s to apex.  At scroll 150 px/s → 63 px of gap travel.
-// 80 px gives comfortable safety margin.
-const GAP_LOOKAHEAD_WORLD  = 80;  // px (world space)
-
-// OBSTACLE_LOOKAHEAD_SCREEN: screen-space px ahead to check for ground obstacles.
-// At scroll 150 px/s, obstacle travels 80 px in ≈ 0.53 s — enough to reach apex.
-const OBSTACLE_LOOKAHEAD_SCREEN = 80;  // px (screen space)
+const START_DISTANCE = 90; // px  →  catcher.x = 80 − 90 = −10
 
 // ── Catch animation ───────────────────────────────────────────────────────────
 const CATCH_ANIM_MS = 900; // ms the 2-frame catcher_catch animation plays
@@ -131,9 +120,13 @@ export class CatcherEnemy {
     this.isGrounded = true;
     this._coyoteMs  = 0;
 
+    // Previous-frame cat velocityY — used to detect the exact frame the cat
+    // launches a jump (transition from ≥ 0 to < 0).
+    this._prevCatVelY = 0;
+
     // ── Distance tracking ────────────────────────────────────────────────
     // _distance: how many px the catcher is behind the cat.
-    // catcher.x  = CAT_X - _distance  (written only in _updateCatcherMovement).
+    // catcher.x  = CAT_X − _distance  (written ONLY in _updateCatcherMovement).
     this._distance = START_DISTANCE;
 
     // ── Bob ──────────────────────────────────────────────────────────────
@@ -159,7 +152,7 @@ export class CatcherEnemy {
     }
 
     // ── Physics sprite ───────────────────────────────────────────────────
-    const startX = CAT_X - this._distance; // -10 px, barely off-screen left
+    const startX = CAT_X - this._distance; // −10 px, barely off-screen left
     this._sprite = scene.physics.add.sprite(startX, SURFACE_Y, 'catcher_run');
     this._sprite.setOrigin(0.5, 1);
     this._sprite.setScale(CATCHER_SCALE);
@@ -168,7 +161,7 @@ export class CatcherEnemy {
 
     const body = this._sprite.body;
     body.setGravityY(GRAVITY_Y);
-    body.setCollideWorldBounds(false); // X managed manually; world bounds cause jitter
+    body.setCollideWorldBounds(false); // X is managed manually; world bounds cause jitter
     body.setSize(BODY_WIDTH, BODY_HEIGHT, false);
     body.setOffset(BODY_OFFSET_X, BODY_OFFSET_Y);
     body.setVelocityX(0);
@@ -194,7 +187,7 @@ export class CatcherEnemy {
    * Called by GameScene when the cat hits an obstacle.
    *
    *  crash 1 or 2 → move catcher CATCHER_CATCH_UP_STEP px closer; cat survives
-   *  crash 3      → final catch sequence; cat is hidden; game restarts after anim
+   *  crash 3      → final catch sequence; game restarts after animation
    */
   onObstacleHit() {
     if (this.catcherState !== 'run') return;
@@ -207,7 +200,7 @@ export class CatcherEnemy {
     } else {
       // Reduce distance by catch-up step.
       // MIN_CATCHER_DISTANCE is enforced per-frame in _updateChasing() before setX,
-      // not here, so the catch-up quantity is applied first (spec requirement).
+      // not here, so the raw catch-up quantity is applied first.
       this._distance -= CATCHER_CATCH_UP_STEP;
     }
   }
@@ -250,7 +243,6 @@ export class CatcherEnemy {
    * World-space ground check.
    * Reads PlatformManager's live segment list and scroll offset to decide
    * whether the catcher's current world-space X falls inside a platform segment.
-   * This is the same check PlatformManager uses for the cat's own floor body.
    *
    * @param {number} scrollPx  current scroll offset (rounded px)
    * @returns {boolean}
@@ -269,69 +261,11 @@ export class CatcherEnemy {
   }
 
   /**
-   * Decide whether the catcher should jump this frame.
-   *
-   * Three conditions (any one triggers a jump):
-   *   1. Catcher is currently in a gap (no platform below) — late jump.
-   *   2. A gap is detected within GAP_LOOKAHEAD_WORLD px ahead in world space.
-   *   3. A ground-level obstacle is within OBSTACLE_LOOKAHEAD_SCREEN px ahead
-   *      in screen space.
-   *
-   * Player input is NOT mirrored here — the catcher navigates terrain on its
-   * own, reacting to the level at its own screen position.
-   *
-   * @param {number}  scrollPx
-   * @param {boolean} overPlatform
-   * @returns {boolean}
-   */
-  _shouldJump(scrollPx, overPlatform) {
-    const catcherScreenX = this._sprite.x;
-
-    // 1. Already in a gap — jump while coyote window allows it.
-    if (!overPlatform) return true;
-
-    // 2. Gap lookahead (world space).
-    const pm = this._scene._platforms;
-    if (pm) {
-      const catcherWorldX = scrollPx + catcherScreenX;
-      const lookWorldX    = catcherWorldX + GAP_LOOKAHEAD_WORLD;
-      let hasGroundAhead  = false;
-      for (const seg of pm._segments) {
-        if (lookWorldX >= seg.worldX && lookWorldX < seg.worldX + seg.width) {
-          hasGroundAhead = true;
-          break;
-        }
-      }
-      if (!hasGroundAhead) return true;
-    }
-
-    // 3. Ground obstacle lookahead (screen space).
-    //    Obstacles approach from the right (scrolling left).
-    //    We check the obstacle's current screen X against the catcher's position.
-    const om = this._scene._obstacles;
-    if (om && om._obstacles) {
-      for (const obs of om._obstacles) {
-        const obsScreenX = obs.worldX - scrollPx;
-
-        // Obstacle must be ahead (to the right) of the catcher and within range.
-        if (obsScreenX <= catcherScreenX + 5) continue;
-        if (obsScreenX >  catcherScreenX + OBSTACLE_LOOKAHEAD_SCREEN) continue;
-
-        // Only react to ground-level obstacles (not flying birds).
-        // obsBottom is SURFACE_Y for all ground obstacles (set in ObstacleManager).
-        if (obs.obsBottom >= SURFACE_Y - 5) return true;
-      }
-    }
-
-    return false;
-  }
-
-  /**
    * Per-frame update for the 'run' state.
    *
-   * Frame order (per spec):
+   * Frame order:
    *   1. Gravity / vertical velocity — handled by Arcade physics before this call
-   *   2. Compute current scroll offset
+   *   2. Compute scroll offset
    *   3. World-space ground detection → overPlatform
    *   4. Resolve grounded state (land / start falling / coyote)
    *   5. Tick coyote window
@@ -339,7 +273,7 @@ export class CatcherEnemy {
    *   7. Enforce minCatcherDistance on _distance  ← BEFORE setX
    *   8. _updateCatcherMovement()  — ONLY place that writes sprite.x
    *   9. Vertical snap + bob (grounded only)
-   *  10. Terrain-aware jump decision → _shouldJump()
+   *  10. Cat-mirror jump — fires the frame the cat's velocityY turns negative
    *  11. Body offset lock
    *  12. Animation update
    */
@@ -363,7 +297,7 @@ export class CatcherEnemy {
         this._coyoteMs  = 0;
       }
     } else if (!overPlatform && this.isGrounded) {
-      // Just moved off a platform edge → begin coyote window.
+      // Just moved off a platform edge → open coyote window.
       this.isGrounded = false;
       this._coyoteMs  = COYOTE_MS;
     }
@@ -377,9 +311,6 @@ export class CatcherEnemy {
     this._distance -= CATCHUP_SPEED * (delta / 1000);
 
     // ── 7. Enforce minCatcherDistance BEFORE setX ─────────────────────────
-    // Applied after the creep (and after any crash catch-up that happened
-    // between frames via onObstacleHit).  This is the FINAL word on _distance.
-    // Nothing after this may change _distance or sprite.x.
     if (this._distance < MIN_CATCHER_DISTANCE) {
       this._distance = MIN_CATCHER_DISTANCE;
     }
@@ -395,11 +326,19 @@ export class CatcherEnemy {
       body.setVelocityY(0);
     }
 
-    // ── 10. Terrain-aware jump ────────────────────────────────────────────
-    const canJump    = this.isGrounded || this._coyoteMs > 0;
-    const needsJump  = this._shouldJump(scrollPx, overPlatform);
+    // ── 10. Cat-mirror jump ───────────────────────────────────────────────
+    // Read the cat's current velocityY and compare to previous frame.
+    // The instant the cat's velocity flips from ≥ 0 to < 0, the cat has
+    // just launched a jump.  The catcher fires the same impulse immediately.
+    //
+    // No terrain AI, no lookahead, no delay — only and exactly when the
+    // player presses jump.
+    const catVelY     = this._catSprite?.body?.velocity?.y ?? 0;
+    const catJustJumped = catVelY < 0 && this._prevCatVelY >= 0;
+    this._prevCatVelY = catVelY;
 
-    if (needsJump && canJump) {
+    const canJump = this.isGrounded || this._coyoteMs > 0;
+    if (catJustJumped && canJump) {
       body.setVelocityY(JUMP_VEL);
       this.isGrounded = false;
       this._coyoteMs  = 0;
@@ -425,7 +364,7 @@ export class CatcherEnemy {
 
   /**
    * catcher_run (4 frames) while grounded.
-   * Static ascent/descent frames while airborne.
+   * Static ascent (frame 2) / descent (frame 3) frames while airborne.
    * catcher_catch is NEVER played here — only in _beginFinalCatch().
    */
   _updateCatcherAnimation(body) {
