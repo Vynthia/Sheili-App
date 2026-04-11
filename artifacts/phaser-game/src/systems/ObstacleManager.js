@@ -163,26 +163,39 @@ export class ObstacleManager {
   get group() { return this._hitboxGroup; }
 
   /**
-   * Returns true if any ground obstacle will reach the catcher's body within
-   * `remainingDelayMs` milliseconds (plus a small safety buffer).
+   * Returns the live ground obstacle that will reach the catcher body first —
+   * specifically, the leftmost (smallest screen X) obstacle whose right hx edge
+   * has not yet passed the catcher's body left edge.
    *
-   * Called by CatcherEnemy during the pending-jump countdown to decide whether
-   * to fire the jump early.  Prevents the catcher from being stuck against an
-   * obstacle that the cat already cleared while the delayed jump was counting down.
+   * CatcherEnemy calls this every frame to make per-obstacle jump decisions with
+   * exact hitbox geometry (hitW, hitH, screenX) rather than a generic boolean.
    *
-   * Geometry (screen space):
-   *   catcher body right edge = catcherScreenX + CAT_BODY_RIGHT_OFFSET (+18)
-   *   obstacle hx left  edge  = obsScreenX − hitW/2
-   *
-   * The obstacle approaches from the right (obsScreenX decreasing at 150 px/s).
-   * Time for obstacle hx left to reach catcher body right:
-   *   t = (obsHxLeft − catcherBodyRight) * 1000 / SCROLL_SPEED
-   * If t ≤ remainingDelayMs + BUFFER, fire the jump immediately.
-   *
-   * @param {number} catcherScreenX   catcher sprite.x in screen pixels
-   * @param {number} remainingDelayMs ms remaining in the jump countdown
-   * @returns {boolean}
+   * @param {number} catcherScreenX  catcher sprite.x in screen pixels
+   * @returns {{ screenX: number, hitW: number, hitH: number } | null}
    */
+  getNextGroundObstacleForCatcher(catcherScreenX) {
+    const scrollPx        = Math.round(this._scrollOffset);
+    const catcherBodyLeft = catcherScreenX + CAT_BODY_LEFT_OFFSET; // −10
+
+    let closest   = null;
+    let closestSX = Infinity;
+
+    for (const obs of this._obstacles) {
+      const screenX = obs.worldX - scrollPx;
+      const hxRight = screenX + obs.hitW / 2;
+
+      // Exclude obstacles whose right hx edge has fully passed the catcher body left.
+      if (hxRight < catcherBodyLeft) continue;
+
+      // Track the one with the smallest screen X (closest to / most past the catcher).
+      if (screenX < closestSX) {
+        closestSX = screenX;
+        closest   = { screenX, hitW: obs.hitW, hitH: obs.hitH };
+      }
+    }
+    return closest;
+  }
+
   groundObstacleApproachingCatcher(catcherScreenX, remainingDelayMs) {
     const scrollPx        = Math.round(this._scrollOffset);
     const catcherBodyLeft  = catcherScreenX + CAT_BODY_LEFT_OFFSET;  // −10

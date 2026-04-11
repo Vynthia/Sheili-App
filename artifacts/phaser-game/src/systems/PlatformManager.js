@@ -49,7 +49,13 @@ const GROUND_DEPTH = 9;
 // Width chosen to cover the catcher's physics body (28 px) with margin.
 // The body is re-centred on the catcher's sprite.x each frame via
 // setPosition() + refreshBody(), so X range is always up-to-date.
-const CATCHER_FLOOR_W = 80; // wider than catcher's 28-px physics body
+const CATCHER_FLOOR_W = 80;  // wider than catcher's 28-px physics body
+// Catcher floor height must satisfy: SURFACE_Y + CATCHER_FLOOR_H > body.top_at_spawn
+// body.top_at_spawn = (SURFACE_Y−1) + BODY_OFFSET_Y − displayOriginY
+//                   = 194 + 76 − 64 = 206
+// So CATCHER_FLOOR_H > 206 − 195 = 11.  Use 16 for a solid 5-px margin.
+// (Cat floor uses FLOOR_H=8 because its spawn y places body.top at ~202, within 8 px.)
+const CATCHER_FLOOR_H = 16; // px — taller than FLOOR_H so floor.bottom(211) > body.top(206)
 
 // Catcher body X offsets from sprite.x (screen space).
 // Derived from CatcherEnemy: BODY_OFFSET_X=22, BODY_WIDTH=28, displayOriginX=32
@@ -170,7 +176,7 @@ export class PlatformManager {
     //
     // After setSize(), refreshBody() (called by staticGroup.add()) syncs the
     // broadphase tree with the new dimensions.
-    const CATCHER_SPAWN_X = -10; // CAT_X − START_DISTANCE
+    const CATCHER_SPAWN_X = -70; // CAT_X − START_DISTANCE (CatcherEnemy: 80 − 150 = −70)
     this._catcherGroup = scene.physics.add.staticGroup();
     this._catcherFloor = scene.physics.add.staticImage(
       CATCHER_SPAWN_X - CATCHER_FLOOR_W / 2, SURFACE_Y, "__ground_px"
@@ -189,7 +195,7 @@ export class PlatformManager {
     // body into the broadphase tree with the CORRECT 80×8 bounds.
     this._catcherFloor.body.position.x = CATCHER_SPAWN_X - CATCHER_FLOOR_W / 2;
     this._catcherFloor.body.position.y = SURFACE_Y;
-    this._catcherFloor.body.setSize(CATCHER_FLOOR_W, FLOOR_H, false); // ← also updates tree
+    this._catcherFloor.body.setSize(CATCHER_FLOOR_W, CATCHER_FLOOR_H, false); // ← also updates tree
 
     // ── Seed enough segments to fill canvas + buffer ───────────────────────
     const canvasW = scene.scale.width;
@@ -291,8 +297,8 @@ export class PlatformManager {
     if (segmentUnder) {
       this._catcherFloor.body.position.x = catcherScreenX - CATCHER_FLOOR_W / 2;
       // body.position.y stays permanently at SURFACE_Y — never changes.
-      // setSize with center=false: keeps our position, restores 80×8, updates tree.
-      this._catcherFloor.body.setSize(CATCHER_FLOOR_W, FLOOR_H, false);
+      // setSize with center=false: keeps our position, restores 80×CATCHER_FLOOR_H, updates tree.
+      this._catcherFloor.body.setSize(CATCHER_FLOOR_W, CATCHER_FLOOR_H, false);
       this._catcherFloor.body.enable = true;
     } else {
       // Gap under catcher — catcher must be airborne (mirroring the cat's jump).

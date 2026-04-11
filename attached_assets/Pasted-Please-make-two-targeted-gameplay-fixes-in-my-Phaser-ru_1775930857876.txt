@@ -1,0 +1,112 @@
+Please make two targeted gameplay fixes in my Phaser runner. Do not rewrite the architecture. Keep the current CatcherEnemy, GameScene, PlatformManager, ObstacleManager, Arcade Physics setup, and delayed-jump system. I want direct final code, not explanations or pseudocode.
+
+There are still two problems:
+
+1. The catcher is sometimes still too close to the cat, and after the first or second catch-up event it can already end up almost directly behind the cat. That must not happen. The catcher should only be close enough for the final catch on the third hit.
+2. The catcher can still sometimes intersect a ground obstacle during a delayed jump. That must never happen. The catcher must never be inside an obstacle, never clip through it, and never end up on the wrong side of it.
+
+Implement the following exactly:
+
+A) Increase and rebalance catcher distance progression
+
+Current behavior is too aggressive. I need a larger starting distance so that:
+- at the beginning, the catcher is clearly behind the cat
+- after catch-up #1, it is still safely behind
+- after catch-up #2, it is still not yet in final-catch range
+- only on catch-up #3 / final catch state should it be close enough to catch the cat
+
+Required changes:
+- Increase the starting catcher distance
+- Rebalance the catch-up step and/or minimum run distance so crashes 1 and 2 do NOT place the catcher almost directly behind the cat
+- The normal run-state minimum distance must still leave a visibly safe gap between cat and catcher
+- The catcher should only overlap / move into true catch position inside the final catch sequence, never during normal run state
+
+Use this balancing rule:
+- crash 0: clearly behind
+- crash 1: noticeably closer, but still safe
+- crash 2: tense, but still not catch-contact
+- crash 3: final catch animation begins
+
+If needed, adjust these constants:
+- START_DISTANCE
+- CATCHER_CATCH_UP_STEP
+- MIN_CATCHER_DISTANCE
+
+But keep the existing state-machine logic:
+- crash 1 -> catcher gets closer
+- crash 2 -> catcher gets closer again
+- crash 3 -> final catch sequence
+
+B) Make delayed jump obstacle-safe with a hard guarantee
+
+The catcher must never be inside a ground obstacle, even briefly, even during delayed jump timing.
+
+The current “delay unless forced early” logic is still not strict enough. Replace it with a stronger safety rule:
+
+- While catcherState === 'run', before keeping or consuming the remaining jump delay, always evaluate the next relevant ground obstacle for the catcher.
+- If the catcher would reach the obstacle before a safe jump can still fully clear it, the jump must trigger immediately.
+- Do not wait until collision is close.
+- The catcher must jump early enough to fully clear the obstacle with margin.
+
+Hard guarantee required:
+- The catcher must never intersect the obstacle hitbox
+- The catcher must never land inside the obstacle
+- The catcher must never appear visually in front of or behind an obstacle it was supposed to clear
+- If necessary, safety must override the cosmetic delay
+
+Implement this using real obstacle hitbox data:
+- only use active ground-obstacle hitboxes
+- do not use flying birds for this catcher safety logic
+- inspect the next ground obstacle ahead of the catcher
+- compute whether the remaining delay would make the jump too late
+- if yes, force immediate jump
+
+Strengthen the logic with a true safety margin:
+- add a horizontal safety buffer before the obstacle front edge
+- the catcher should jump before entering a “no longer safe to wait” zone
+
+Suggested helper structure:
+- `_getNextGroundObstacleAhead()`
+- `_mustJumpNowForObstacle(body, obstacle, remainingDelayMs)`
+- `_triggerJumpNow()`
+
+The decision should use:
+- catcher X / body bounds
+- obstacle hitbox bounds
+- world scroll / obstacle movement speed
+- remaining jump delay
+- current jump velocity and gravity
+- a configurable safety buffer in pixels
+
+Add a constant such as:
+- `const OBSTACLE_JUMP_BUFFER_PX = ...`
+
+C) Enforce a hard non-intersection fallback
+
+In addition to smarter early jumping, add a final defensive rule:
+- if the catcher is ever found overlapping a ground obstacle during run state, immediately resolve it in a safe way rather than letting the overlap persist visually
+- prefer preventing the overlap before it happens, but add this as a strict backup guard
+
+This fallback must not create visible jitter if the main logic works correctly.
+Use it only as a defensive last resort.
+
+D) Preserve current architecture
+- Keep manual X positioning in `_updateCatcherMovement()`
+- Keep Arcade Physics vertical motion
+- Keep delayed jump behavior when it is safe
+- Keep final catch behavior on crash 3
+- Do not rewrite the game systems
+
+E) Output requirements
+Return:
+1. the full updated CatcherEnemy code
+2. the exact constant changes for spacing
+3. any tiny obstacle helper changes required
+4. short inline comments explaining the new distance balancing and obstacle-safe jump logic
+
+Important:
+- Give final pasteable code
+- No pseudocode
+- No explanations without code
+- The catcher must only be able to truly catch on the third catch event
+- During normal run state, the catcher must never be inside a ground obstacle

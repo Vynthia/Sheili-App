@@ -187,8 +187,11 @@ export default class GameScene extends Phaser.Scene {
           ? `worldX=${_floorDiag.segmentUnder.worldX} w=${_floorDiag.segmentUnder.width}`
           : 'NONE',
       );
-      // Hard-reset: snap catcher back to surface and zero velocity.
-      cb.reset(this._catcher.sprite.x, 195);
+      // Hard-reset: snap catcher back 1 px above surface (194 = SURFACE_Y−1)
+      // so body.top=206 which is within the 4-px OVERLAP_BIAS zone of
+      // floor.bottom=203: 206 < 203+4=207 ✓.  Using 195 gives body.top=207
+      // which fails the strict-less-than check (207 < 207 is false).
+      cb.reset(this._catcher.sprite.x, 194);
       cb.setVelocity(0, 0);
     }
 
