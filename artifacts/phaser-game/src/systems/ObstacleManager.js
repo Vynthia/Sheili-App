@@ -163,6 +163,53 @@ export class ObstacleManager {
   get group() { return this._hitboxGroup; }
 
   /**
+   * Returns true if any ground obstacle will reach the catcher's body within
+   * `remainingDelayMs` milliseconds (plus a small safety buffer).
+   *
+   * Called by CatcherEnemy during the pending-jump countdown to decide whether
+   * to fire the jump early.  Prevents the catcher from being stuck against an
+   * obstacle that the cat already cleared while the delayed jump was counting down.
+   *
+   * Geometry (screen space):
+   *   catcher body right edge = catcherScreenX + CAT_BODY_RIGHT_OFFSET (+18)
+   *   obstacle hx left  edge  = obsScreenX − hitW/2
+   *
+   * The obstacle approaches from the right (obsScreenX decreasing at 150 px/s).
+   * Time for obstacle hx left to reach catcher body right:
+   *   t = (obsHxLeft − catcherBodyRight) * 1000 / SCROLL_SPEED
+   * If t ≤ remainingDelayMs + BUFFER, fire the jump immediately.
+   *
+   * @param {number} catcherScreenX   catcher sprite.x in screen pixels
+   * @param {number} remainingDelayMs ms remaining in the jump countdown
+   * @returns {boolean}
+   */
+  groundObstacleApproachingCatcher(catcherScreenX, remainingDelayMs) {
+    const scrollPx        = Math.round(this._scrollOffset);
+    const catcherBodyLeft  = catcherScreenX + CAT_BODY_LEFT_OFFSET;  // −10
+    const catcherBodyRight = catcherScreenX + CAT_BODY_RIGHT_OFFSET; // +18
+    const BUFFER_MS        = 50; // safety margin for frame-rate jitter
+
+    for (const obs of this._obstacles) {
+      const obsScreenX = obs.worldX - scrollPx;
+      const obsHxLeft  = obsScreenX - obs.hitW / 2; // left edge of Arcade hitbox
+      const obsHxRight = obsScreenX + obs.hitW / 2; // right edge
+
+      // Skip obstacles whose right edge has already passed the catcher's left body edge
+      // (they have cleared the catcher and pose no threat).
+      if (obsHxRight < catcherBodyLeft) continue;
+
+      // Time (ms) until obsHxLeft reaches catcherBodyRight.
+      // Negative means the obstacle is already overlapping → fire immediately.
+      const msTillHit = (obsHxLeft - catcherBodyRight) * 1000 / SCROLL_SPEED;
+
+      if (msTillHit <= remainingDelayMs + BUFFER_MS) {
+        return true; // jump now — waiting would leave the catcher in the obstacle
+      }
+    }
+    return false;
+  }
+
+  /**
    * Called by PlatformManager whenever a new segment is spawned.
    * Randomly places 0–MAX_PER_SEGMENT ground obstacles in the segment interior.
    */
@@ -367,8 +414,34 @@ export class ObstacleManager {
           return;
         }
 
-        // Spawn bird just off the left edge.
+        // Spawn only when the cat will have solid ground under it when the
+        // bird crosses the cat's position.
+        //
+        // The bird spawns at x = −halfDisplayW and flies right at BIRD_FLY_SPEED.
+        // Time to reach the cat (CAT_SCREEN_X = 80):
+        //   travelSecs = (CAT_SCREEN_X + halfDisplayW) / BIRD_FLY_SPEED
+        // In that time the world scrolls forward, advancing the cat's world X:
+        //   catFutureWorldX = currentScrollPx + SCROLL_SPEED * travelSecs + CAT_SCREEN_X
+        //
+        // We require both edges of the bird's hitbox width to be over ground.
+        // Gaps are ≥ 70 px wide and the bird hitbox is 38 px, so checking both
+        // endpoints is sufficient to exclude any overlapping gap.
         const halfDisplayW = (128 * BIRD_FLY_SCALE) / 2;
+        const travelSecs   = (CAT_SCREEN_X + halfDisplayW) / BIRD_FLY_SPEED;
+        const futureScrPx  = scrollPx + Math.round(SCROLL_SPEED * travelSecs);
+        const catFutureWorldX = futureScrPx + CAT_SCREEN_X;
+        const halfHitW        = BIRD_FLY_HIT_W / 2;
+        const platforms       = this._scene._platforms; // PlatformManager reference
+
+        if (
+          !platforms.isWorldXOverGround(Math.round(catFutureWorldX - halfHitW)) ||
+          !platforms.isWorldXOverGround(Math.round(catFutureWorldX + halfHitW))
+        ) {
+          // Gap will be under the cat when the bird crosses — skip this spawn.
+          this._flyTimer = BIRD_RETRY_DELAY;
+          return;
+        }
+
         this._flyX = -halfDisplayW;
 
         this._flySprite = this._scene.add.sprite(

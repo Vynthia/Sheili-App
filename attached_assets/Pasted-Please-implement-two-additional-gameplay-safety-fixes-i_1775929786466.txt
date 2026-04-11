@@ -1,0 +1,80 @@
+Please implement two additional gameplay safety fixes in my Phaser runner, using minimal targeted changes only. Do not rewrite the architecture.
+
+There are two remaining issues:
+
+1. The catcher now works, but because of the jump delay, it can still end up colliding with or sitting in front of / behind an obstacle that the cat already cleared. That must never happen.
+2. The `flying_bird` obstacle must never appear above a gap, because the cat can jump over a ground obstacle and then unfairly collide with the bird while passing over a hole.
+
+Implement the following exactly:
+
+A) Catcher obstacle safety
+The catcher must never get stuck inside, in front of, or behind a ground obstacle due to delayed jump timing.
+
+Required behavior:
+- If the cat successfully clears a ground obstacle, the catcher must also clear that same obstacle reliably.
+- The catcher must never visually or physically end up intersecting a ground obstacle.
+- The catcher must never end up on the wrong side of an obstacle because the jump delay caused a late jump.
+
+Implement this robustly using obstacle-aware delayed jump support:
+- When the cat jumps, keep the existing jump delay behavior.
+- But before the delayed jump actually fires, check whether a ground obstacle will be at the catcher’s X position before or during the remaining delay window.
+- If yes, do NOT allow the catcher to continue waiting until collision.
+- Instead, fire the jump early enough so that the catcher clears the obstacle safely.
+- This should preserve the feeling of a delay whenever it is safe, but override the delay when needed to prevent impossible or ugly catcher-obstacle interactions.
+
+Technical requirements:
+- Use the real active obstacle data / hitboxes as the source of truth.
+- Only consider ground obstacles for this catcher safety logic, not flying birds.
+- Add a helper in CatcherEnemy if needed, e.g. something like:
+  - `_shouldForceEarlyJump(...)`
+  - `_getNextGroundObstacleAhead(...)`
+- The check should use:
+  - catcher current X
+  - obstacle screen X / hitbox bounds
+  - obstacle movement speed
+  - remaining jump delay time
+  - catcher jump arc timing if needed
+- The final result must guarantee that the catcher never clips into or ends up wrongly placed relative to a ground obstacle.
+
+B) flying_bird spawn restriction
+The `flying_bird` obstacle must never spawn over a gap.
+
+Required behavior:
+- A flying bird may only spawn when the horizontal area beneath it is supported by valid ground/platform.
+- If the chosen spawn location for a bird is above a gap, reject that spawn and either:
+  - choose a different valid location, or
+  - skip bird spawn for that segment/cycle.
+
+Technical requirements:
+- Use the real platform / segment layout as the source of truth.
+- Do not rely on visual guesses.
+- Check whether the horizontal region under the bird overlaps a valid ground segment.
+- The full bird hazard width must be supported, not just its center point.
+- If necessary, add a helper such as:
+  - `_isBirdSpawnSupported(screenX, birdWidth)`
+  - `_isRangeOverGround(leftX, rightX)`
+
+C) Fairness rule
+The game must remain fair:
+- The cat should never be forced into an unavoidable collision with a bird while jumping over a gap/ground obstacle combination.
+- The catcher should never look broken by colliding with an obstacle the cat already cleared.
+
+D) Constraints
+- Minimal targeted edits only
+- No architecture rewrite
+- Keep the current CatcherEnemy, ObstacleManager, PlatformManager, and GameScene structure
+- Keep the current catcher delay system, but make it obstacle-safe
+- Keep Arcade Physics
+
+E) Output requirements
+Return:
+1. the exact updated CatcherEnemy code for the obstacle-safe delayed jump behavior
+2. the exact updated obstacle/bird spawn code
+3. any tiny helper added in PlatformManager or ObstacleManager
+4. short inline comments explaining the safety logic
+
+Important:
+- Give final pasteable code, not just explanation
+- No pseudocode
+- No “could” or “might”
+- The result must guarantee that catcher-ground obstacle interactions remain correct and that birds never spawn above gaps

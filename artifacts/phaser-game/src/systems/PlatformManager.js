@@ -303,6 +303,18 @@ export class PlatformManager {
     return { segmentUnder, catcherBodyLeft, catcherBodyRight, scrollPx };
   }
 
+  /**
+   * Returns true if `worldX` falls inside any live platform segment.
+   * Used by ObstacleManager to verify ground support before spawning a bird.
+   * @param {number} worldX
+   */
+  isWorldXOverGround(worldX) {
+    for (const seg of this._segments) {
+      if (worldX >= seg.worldX && worldX < seg.worldX + seg.width) return true;
+    }
+    return false;
+  }
+
   /** Call every frame from GameScene.update(). */
   update(delta) {
     this._scrollOffset += SCROLL_SPEED * (delta / 1000);

@@ -119,8 +119,13 @@ export class CatcherEnemy {
     // ── Jump delay state ──────────────────────────────────────────────────
     // Queues a jump JUMP_DELAY_MS after catSprite.didJump is seen.
     // Only one pending jump at a time; new signals are ignored while queued.
-    this._pendingJump    = false; // true while countdown is running
-    this._jumpDelayTimer = 0;    // ms remaining until deferred jump fires
+    this._pendingJump     = false; // true while countdown is running
+    this._jumpDelayTimer  = 0;    // ms remaining until deferred jump fires
+
+    // ── Obstacle manager ref ──────────────────────────────────────────────
+    // Injected via update() so the catcher can check for nearby obstacles
+    // and fire its jump early when needed (before the normal delay expires).
+    this._obstacleManager = null;
 
     // ── Distance tracking ────────────────────────────────────────────────
     // _distance: how many px the catcher is behind the cat.
@@ -217,12 +222,14 @@ export class CatcherEnemy {
   }
 
   /**
-   * @param {number}                    delta     ms (already clamped by GameScene)
+   * @param {number}                    delta           ms (already clamped by GameScene)
    * @param {Phaser.GameObjects.Sprite} catSprite
+   * @param {ObstacleManager}           obstacleManager used for early-jump safety checks
    * @returns {boolean}  true → GameScene should restart
    */
-  update(delta, catSprite) {
-    this._catSprite = catSprite;
+  update(delta, catSprite, obstacleManager) {
+    this._catSprite       = catSprite;
+    this._obstacleManager = obstacleManager ?? this._obstacleManager;
 
     switch (this.catcherState) {
 
@@ -315,6 +322,23 @@ export class CatcherEnemy {
 
     if (this._pendingJump) {
       this._jumpDelayTimer -= delta; // count down
+
+      // ── Early-jump safety override ────────────────────────────────────────
+      // If any ground obstacle will reach the catcher's body before the
+      // remaining delay expires, zero the timer so the jump fires this frame.
+      // This prevents the catcher from standing still while an obstacle scrolls
+      // into it — which would look broken and cause a stuck collision.
+      // The check uses ObstacleManager's live obstacle positions and its own
+      // scroll offset (independent of PlatformManager), so no extra sync needed.
+      if (
+        this._jumpDelayTimer > 0 &&
+        this._obstacleManager?.groundObstacleApproachingCatcher(
+          this._sprite.x, this._jumpDelayTimer
+        )
+      ) {
+        this._jumpDelayTimer = 0; // force-fire the jump this frame
+      }
+
       if (this._jumpDelayTimer <= 0) {
         // Fire the deferred jump now.
         body.setVelocityY(JUMP_VEL);

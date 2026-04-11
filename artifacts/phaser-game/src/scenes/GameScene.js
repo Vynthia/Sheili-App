@@ -193,7 +193,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ── Catcher ───────────────────────────────────────────────────────────
-    const catchDone = this._catcher.update(safeDelta, this._cat.sprite);
+    const catchDone = this._catcher.update(safeDelta, this._cat.sprite, this._obstacles);
 
     if (catchDone) {
       this._cat.destroy();
