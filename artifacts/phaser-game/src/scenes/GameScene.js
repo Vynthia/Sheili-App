@@ -157,15 +157,40 @@ export default class GameScene extends Phaser.Scene {
     // ── Player ────────────────────────────────────────────────────────────
     this._cat.update(safeDelta);
 
-    // ── Catcher floor — update BEFORE catcher.update() ───────────────────
-    // The floor body must be active when the Arcade physics step resolves
-    // collisions, which happens at the START of the next frame's update.
-    // Calling updateCatcherFloor() here — before catcher.update() — ensures
-    // body.blocked.down in _updateChasing() reads the correctly-activated
-    // floor state for this frame rather than the previous frame's state.
-    // (Currently the floor is permanently enabled, so ordering is also
-    // correct defensively for any future conditional-enable logic.)
-    this._platforms.updateCatcherFloor(this._catcher.sprite.x);
+    // ── Catcher floor — reposition + refresh BEFORE catcher.update() ─────
+    // updateCatcherFloor() moves the static floor body to the catcher's
+    // current screen X (setPosition + refreshBody) and enables it only when
+    // platform-segment geometry confirms the catcher is over solid ground.
+    // Must run before catcher.update() so body.blocked.down is consistent.
+    const _floorDiag = this._platforms.updateCatcherFloor(this._catcher.sprite.x);
+
+    // ── Debug failsafe — log + reset if catcher falls far below play area ─
+    // The play area is 0–540 px tall (canvas height).  If the catcher drops
+    // below y = 600 while in 'run' state, something is wrong with the floor
+    // support.  We log all relevant values and hard-snap it back to the
+    // surface so it recovers rather than disappearing off-screen.
+    if (this._catcher.catcherState === 'run' && this._catcher.sprite.y > 600) {
+      const cb  = this._catcher.sprite.body;
+      const flb = this._platforms._catcherFloor.body;
+      console.warn(
+        '[CATCHER FLOOR BUG]',
+        '\n  sprite.x         :', this._catcher.sprite.x,
+        '\n  sprite.y         :', this._catcher.sprite.y,
+        '\n  body.velocity.y  :', cb.velocity.y,
+        '\n  body.blocked.down:', cb.blocked.down,
+        '\n  floor enabled    :', flb.enable,
+        '\n  floor bounds     :', flb.x, flb.y, flb.right, flb.bottom,
+        '\n  bodyLeft (world) :', _floorDiag.catcherBodyLeft,
+        '\n  bodyRight(world) :', _floorDiag.catcherBodyRight,
+        '\n  scrollPx         :', _floorDiag.scrollPx,
+        '\n  segmentUnder     :', _floorDiag.segmentUnder
+          ? `worldX=${_floorDiag.segmentUnder.worldX} w=${_floorDiag.segmentUnder.width}`
+          : 'NONE',
+      );
+      // Hard-reset: snap catcher back to surface and zero velocity.
+      cb.reset(this._catcher.sprite.x, 195);
+      cb.setVelocity(0, 0);
+    }
 
     // ── Catcher ───────────────────────────────────────────────────────────
     const catchDone = this._catcher.update(safeDelta, this._cat.sprite);

@@ -1,0 +1,61 @@
+The catcher is still falling all the way down to the bottom of the canvas. That means the previous fix did NOT solve the real floor-support issue.
+
+Please fix the ACTUAL root cause now, with a robust physics solution.
+
+Important: do not give me another partial patch. I need the floor support for the catcher to become deterministic and reliable.
+
+The likely problem is that the catcher support floor is still not being updated correctly in Arcade Physics. A static body that is moved, resized, enabled, or disabled must be properly refreshed/reset in the physics world, otherwise collisions will use stale body data. Also, the catcher floor support must be derived from the real platform segment data, not from blocked flags or a circular physics assumption.
+
+Implement the following exactly:
+
+1. Rework `PlatformManager.updateCatcherFloor(...)` so it determines support from the actual live platform segments.
+   - It must check whether the catcher's current X position is above a real platform segment.
+   - Do not infer floor support from `body.blocked.down`.
+   - Do not rely on previous-frame collision state.
+   - Use the platform segment data / active floor segments as the source of truth.
+
+2. Make the catcher support body physically reliable.
+   - If the catcher floor uses a static body, then after every move / resize / enable / disable change, properly refresh the body in Arcade Physics.
+   - Use the correct Phaser method for static-body sync (`refreshBody()` or equivalent for the object type being used).
+   - If the current static-group approach cannot be made reliable, replace it with one dedicated invisible support body that is explicitly repositioned and refreshed every frame based on the current segment under the catcher.
+   - The support body must exist exactly where the catcher can land.
+
+3. Remove circular logic.
+   - `CatcherEnemy` may read `body.blocked.down` to know whether it is grounded.
+   - But `updateCatcherFloor()` must NOT depend on `blocked.down` to decide whether the floor exists.
+   - The floor existence must come from platform geometry only.
+
+4. Keep Arcade Physics for vertical motion.
+   - Do not replace the catcher with manual Y snapping as the main solution.
+   - However, add a temporary debug failsafe: if the catcher falls far below the visible play area while catcherState === 'run', log the relevant values and hard reset only for debugging.
+   - Log:
+     - catcher.x
+     - catcher.y
+     - catcher.body.velocity.y
+     - catcher.body.blocked.down
+     - whether catcher floor is enabled
+     - catcher floor body bounds
+     - which platform segment (if any) is considered under the catcher
+
+5. Verify update timing correctly.
+   - `updateCatcherFloor()` must run before `catcher.update(...)`.
+   - If needed, move the support-floor synchronization to the earliest safe point in the frame so Arcade Physics sees correct support data.
+
+6. Add a real diagnostic pass.
+   - I do not want “it should work now”.
+   - After editing, inspect the final code path and confirm:
+     - how the platform-under-catcher test works
+     - how the support body is refreshed
+     - where exactly the update call order happens
+     - why the catcher can no longer miss the floor when standing above a valid segment
+
+7. Return code, not just explanation.
+   Please provide:
+   - the exact updated `PlatformManager.updateCatcherFloor(...)`
+   - any required support-body creation changes in PlatformManager
+   - the exact `GameScene.update()` call order
+   - any tiny debug instrumentation added
+   - only the minimum required changes, but fully working
+
+Critical requirement:
+If the current floor body is static and is being repositioned without a proper physics refresh, fix that. That is the first thing to investigate and correct.

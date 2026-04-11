@@ -42,13 +42,22 @@ const FLOOR_W      = 80;   // wider than the cat's physics body
 const FLOOR_H      = 8;    // same height as the old per-segment bodies
 const GROUND_DEPTH = 9;
 
-// Catcher floor: fixed rectangle covering every screen-X the catcher can
-// occupy.  Catcher body left ≈ sprite.x − 10, right ≈ sprite.x + 18.
-// sprite.x range: −10 (start) to 40 (minimum distance).
-// So body x range: −20 to 58.  We use a generous 110-px-wide body centred
-// at x = 10, covering x = −45 to x = 65.
-const CATCHER_FLOOR_CENTER_X = 10;
-const CATCHER_FLOOR_W        = 110;
+// Catcher floor: a MOVING static body repositioned every frame to sit
+// directly under the catcher's current screen X.  This eliminates all
+// stale-broadphase-tree issues that plague a fixed-position body.
+//
+// Width chosen to cover the catcher's physics body (28 px) with margin.
+// The body is re-centred on the catcher's sprite.x each frame via
+// setPosition() + refreshBody(), so X range is always up-to-date.
+const CATCHER_FLOOR_W = 80; // wider than catcher's 28-px physics body
+
+// Catcher body X offsets from sprite.x (screen space).
+// Derived from CatcherEnemy: BODY_OFFSET_X=22, BODY_WIDTH=28, displayOriginX=32
+//   body.left  = sprite.x − 32 + 22           = sprite.x − 10
+//   body.right = sprite.x − 32 + 22 + 28      = sprite.x + 18
+// These offsets are used ONLY for the segment overlap test in updateCatcherFloor.
+const CATCHER_BODY_LEFT_OFFSET  = -10; // px from sprite.x to body left edge
+const CATCHER_BODY_RIGHT_OFFSET =  18; // px from sprite.x to body right edge
 
 // ---------------------------------------------------------------------------
 // Scroll / generation constants
@@ -148,20 +157,39 @@ export class PlatformManager {
     this._floor.body.reset(CAT_SCREEN_X - FLOOR_W / 2, SURFACE_Y);
     this._group.add(this._floor);
 
-    // ── Catcher floor body — separate group, covers catcher's X range ───────
-    // Same design as the cat floor: permanently fixed, never repositioned.
-    // CatcherEnemy registers its own one-way collider against this group.
-    // GameScene calls updateCatcherFloor() each frame to enable / disable it.
+    // ── Catcher floor body — separate group, MOVES every frame ────────────
+    // Unlike the cat floor (fixed at CAT_SCREEN_X), this body is repositioned
+    // each frame by updateCatcherFloor() to sit directly under the catcher's
+    // current screen X.  That makes the support deterministic: there is zero
+    // ambiguity about whether the body is under the catcher.
+    //
+    // Initial position: place it at the catcher's spawn X (CAT_X − START_DIST
+    // = 80 − 90 = −10).  The first segment starts at worldX=0; the catcher's
+    // body right edge (sprite.x + 18 = 8) already overlaps it, so the overlap
+    // test in updateCatcherFloor() will enable the body on frame 1.
+    //
+    // After setSize(), refreshBody() (called by staticGroup.add()) syncs the
+    // broadphase tree with the new dimensions.
+    const CATCHER_SPAWN_X = -10; // CAT_X − START_DISTANCE
     this._catcherGroup = scene.physics.add.staticGroup();
     this._catcherFloor = scene.physics.add.staticImage(
-      CATCHER_FLOOR_CENTER_X, SURFACE_Y, "__ground_px"
+      CATCHER_SPAWN_X - CATCHER_FLOOR_W / 2, SURFACE_Y, "__ground_px"
     );
-    this._catcherFloor.setOrigin(0.5, 0);
+    this._catcherFloor.setOrigin(0, 0); // origin (0,0): body.x == go.x exactly
     this._catcherFloor.setAlpha(0);
     this._catcherFloor.setDepth(GROUND_DEPTH);
-    this._catcherFloor.body.setSize(CATCHER_FLOOR_W, FLOOR_H);
-    this._catcherFloor.body.reset(CATCHER_FLOOR_CENTER_X - CATCHER_FLOOR_W / 2, SURFACE_Y);
+    // NOTE: setSize() is called AFTER staticGroup.add() below, because add()
+    // internally calls refreshBody() → body.reset() which resets body.width and
+    // body.height to match the game object's DISPLAY size (1×1 for this texture).
+    // That would wipe out any setSize() call made before add().
     this._catcherGroup.add(this._catcherFloor);
+    // Re-apply position and custom dimensions now that add() has finished.
+    // setSize(w, h, false) sets width + height without centering (center=false),
+    // then calls world.staticTree.update() — the single call that re-inserts the
+    // body into the broadphase tree with the CORRECT 80×8 bounds.
+    this._catcherFloor.body.position.x = CATCHER_SPAWN_X - CATCHER_FLOOR_W / 2;
+    this._catcherFloor.body.position.y = SURFACE_Y;
+    this._catcherFloor.body.setSize(CATCHER_FLOOR_W, FLOOR_H, false); // ← also updates tree
 
     // ── Seed enough segments to fill canvas + buffer ───────────────────────
     const canvasW = scene.scale.width;
@@ -182,27 +210,97 @@ export class PlatformManager {
   get surfaceY() { return SURFACE_Y; }
 
   /**
-   * Keep the catcher's dedicated floor body permanently enabled.
+   * Reposition the catcher floor body to the catcher's current screen X and
+   * enable it only when the catcher is above a real platform segment.
    *
-   * The catcher is a supernatural pursuer — it never falls through gaps.
-   * It already mirrors the cat's jumps, so it is airborne when a gap passes
-   * beneath it.  The floor body must be ALWAYS active so that when the
-   * catcher comes back down (sometimes right at a gap edge), the Arcade
-   * physics collider fires correctly and the catcher lands at SURFACE_Y
-   * rather than falling through into the void.
+   * DESIGN
+   * ──────
+   * A static body in Arcade Physics is cached in a broadphase RTree.  Any
+   * time the body is moved or resized, the tree entry must be refreshed
+   * (via refreshBody()) otherwise collisions use the stale, original bounds.
+   * The old fixed-position approach never moved the body, but also meant the
+   * body was always at x=−45…65 regardless of where the catcher actually was.
+   * After crashes, the catcher creeps right (toward min-distance = 40 px),
+   * and the fixed floor no longer had the catcher fully over it.
    *
-   * Disabling it based on gap overlap caused a timing bug: on wide gaps
-   * (70–90 px) the catcher could land exactly as the gap was still beneath
-   * it, the disabled body meant no collider fired, and the catcher fell
-   * to the bottom of the canvas.
+   * NEW APPROACH: move the floor body to the catcher's screen X every frame.
+   *   1. Convert catcherScreenX to world space using the current scroll offset.
+   *   2. Test whether the catcher's PHYSICS BODY (not just sprite centre) world
+   *      range overlaps any live segment.  Using the body's left/right edges
+   *      (CATCHER_BODY_LEFT/RIGHT_OFFSET) means the catcher is detected as
+   *      "on platform" even when its sprite.x sits slightly before a segment's
+   *      worldX (e.g. at startup: sprite.x = −10, first segment worldX = 0,
+   *      but body.right world = 8 which IS inside the segment).
+   *   3. If over a segment: position the floor body centred on catcherScreenX
+   *      via setPosition() + refreshBody().  refreshBody() re-inserts the body
+   *      into the static tree at the new coordinates — this is the key step
+   *      that was missing in every previous attempt.  Then enable the body.
+   *   4. If over a gap: disable the body.  The catcher must be airborne (it
+   *      mirrors the cat's jump).  The gap is only 70–90 px; the 120 ms jump
+   *      delay gives the catcher ≈ 18 px of forward travel before it lifts off,
+   *      well within the gap width.
    *
-   * Call signature is kept so GameScene.update() needs no changes.
+   * CALL ORDER (enforced by GameScene)
+   * ───────────────────────────────────
+   * updateCatcherFloor(x) runs BEFORE catcher.update() so the floor is at
+   * the correct position when _updateChasing() reads body.blocked.down.
+   * The Arcade physics step that resolves the collision against this floor
+   * ran at the top of the CURRENT frame (before update() was called), so the
+   * repositioned floor takes effect for the NEXT frame's physics step.  This
+   * one-frame lag is identical to how the cat floor works and is acceptable.
    *
-   * @param {number} _catcherScreenX  (unused — kept for call-site compatibility)
+   * @param {number} catcherScreenX   catcher sprite.x in screen (canvas) pixels
+   * @returns {{ segmentUnder: object|null, catcherBodyLeft: number,
+   *             catcherBodyRight: number, scrollPx: number }}
+   *   Diagnostic info consumed by GameScene's debug failsafe.
    */
-  updateCatcherFloor(_catcherScreenX) {
-    // Always enabled — catcher never falls through gaps.
-    this._catcherFloor.body.enable = true;
+  updateCatcherFloor(catcherScreenX) {
+    const scrollPx = Math.round(this._scrollOffset);
+
+    // ── 1. Catcher body world-space left / right ────────────────────────────
+    // These offsets match the body geometry in CatcherEnemy exactly:
+    //   displayOriginX = 32, BODY_OFFSET_X = 22, BODY_WIDTH = 28
+    //   body.left  = sprite.x − 32 + 22      = sprite.x − 10
+    //   body.right = sprite.x − 32 + 22 + 28 = sprite.x + 18
+    const catcherBodyLeft  = scrollPx + catcherScreenX + CATCHER_BODY_LEFT_OFFSET;
+    const catcherBodyRight = scrollPx + catcherScreenX + CATCHER_BODY_RIGHT_OFFSET;
+
+    // ── 2. Segment overlap test (geometry only — no blocked.down) ───────────
+    // AABB: catcher body overlaps segment when body.left < seg.right
+    // AND body.right > seg.left.
+    let segmentUnder = null;
+    for (const seg of this._segments) {
+      if (catcherBodyLeft < seg.worldX + seg.width && catcherBodyRight > seg.worldX) {
+        segmentUnder = seg;
+        break;
+      }
+    }
+
+    // ── 3. Reposition and sync the static body ──────────────────────────────
+    //
+    // CRITICAL: do NOT use setPosition() + refreshBody() here.
+    // refreshBody() calls body.reset() which resets body.width and body.height
+    // to match the game object's DISPLAY dimensions (1×1 for this texture),
+    // wiping out the custom 80×8 size set in the constructor.  The tree entry
+    // would then be 1×1 and the collision would never fire.
+    //
+    // Correct approach: update body.position.x directly, then call
+    // setSize(w, h, false) which (a) preserves the custom dimensions, (b)
+    // recomputes body.center, and (c) calls world.staticTree.update() — the
+    // only step needed to move a static body in the broadphase tree.
+    if (segmentUnder) {
+      this._catcherFloor.body.position.x = catcherScreenX - CATCHER_FLOOR_W / 2;
+      // body.position.y stays permanently at SURFACE_Y — never changes.
+      // setSize with center=false: keeps our position, restores 80×8, updates tree.
+      this._catcherFloor.body.setSize(CATCHER_FLOOR_W, FLOOR_H, false);
+      this._catcherFloor.body.enable = true;
+    } else {
+      // Gap under catcher — catcher must be airborne (mirroring the cat's jump).
+      this._catcherFloor.body.enable = false;
+    }
+
+    // Return diagnostic info used by GameScene's debug failsafe.
+    return { segmentUnder, catcherBodyLeft, catcherBodyRight, scrollPx };
   }
 
   /** Call every frame from GameScene.update(). */
